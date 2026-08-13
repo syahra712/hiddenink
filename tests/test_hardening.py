@@ -161,11 +161,45 @@ class TestCliSafety:
         self, tmp_path, capsys
     ) -> None:
         p = tmp_path / "t.md"
-        p.write_text("a​b\n", encoding="utf-8")
+        # newline="" so the fixture is byte-exact on every platform. Plain
+        # write_text translates \n to \r\n on Windows, which would make this
+        # assertion about line endings rather than about stream routing.
+        with p.open("w", encoding="utf-8", newline="") as handle:
+            handle.write("a​b\n")
         assert main(["clean", "--json", str(p)]) == 0
         captured = capsys.readouterr()
         assert captured.out == "ab\n"  # cleaned text, not discarded
         assert '"not_determinable"' in captured.err
+
+
+class TestLineEndingFidelity:
+    """Line endings must survive a clean untouched, on every platform.
+
+    ``clean`` is sold on byte-level diffability, so it may not normalise CRLF
+    as a side effect -- neither on read, nor on write, nor through the pipe.
+    The ``data`` profile is the single documented exception.
+    """
+
+    @pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+    def test_in_place_preserves_line_endings(self, tmp_path, ending: bytes) -> None:
+        p = tmp_path / "f.md"
+        p.write_bytes(b"a\xe2\x80\x8bb" + ending + b"c" + ending)
+        assert main(["clean", "-i", str(p)]) == 0
+        assert p.read_bytes() == b"ab" + ending + b"c" + ending
+
+    @pytest.mark.parametrize("ending", ["\n", "\r\n"])
+    def test_stdout_preserves_line_endings(self, tmp_path, capsys, ending: str) -> None:
+        p = tmp_path / "f.md"
+        with p.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(f"a​b{ending}")
+        assert main(["clean", str(p)]) == 0
+        assert capsys.readouterr().out == f"ab{ending}"
+
+    def test_data_profile_normalises_crlf_by_design(self, tmp_path) -> None:
+        p = tmp_path / "f.csv"
+        p.write_bytes(b"a,b\r\nc,d\r\n")
+        assert main(["clean", "-i", str(p)]) == 0
+        assert p.read_bytes() == b"a,b\nc,d\n"
 
     def test_check_exits_nonzero_only_when_changes_needed(self, tmp_path) -> None:
         dirty, clean = tmp_path / "d.md", tmp_path / "c.md"
