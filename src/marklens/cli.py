@@ -16,6 +16,7 @@ from pathlib import Path
 from . import __version__
 from .core.clean_text import Profile, clean_text
 from .core.codepoints import Severity
+from .core.formats import detect_format, inspect_file
 from .core.inspect_text import inspect_text
 from .core.report import Report
 
@@ -127,6 +128,20 @@ def _read(path: str) -> tuple[str, str]:
     return p.read_text(encoding="utf-8", errors="surrogatepass"), str(p)
 
 
+def _inspect_path(path: str, context: int) -> Report:
+    """Dispatch to the container parser or the text inspector.
+
+    Detection is by magic bytes, so a ``.txt`` that is really a PNG is still
+    read as a PNG.
+    """
+    if path != "-":
+        data = Path(path).read_bytes()
+        if detect_format(data, path) is not None:
+            return inspect_file(path)
+    text, name = _read(path)
+    return inspect_text(text, source=name, context_width=context)
+
+
 def _exceeds(report: Report, threshold: Severity | None) -> bool:
     if threshold is None:
         return False
@@ -146,10 +161,7 @@ def _emit(reports: list[Report], args, style: _Style) -> None:
 
 def cmd_inspect(args) -> int:
     style = _Style(_use_colour(sys.stdout) and not args.json)
-    reports: list[Report] = []
-    for path in args.paths:
-        text, name = _read(path)
-        reports.append(inspect_text(text, source=name, context_width=args.context))
+    reports = [_inspect_path(path, args.context) for path in args.paths]
     _emit(reports, args, style)
     return 1 if any(_exceeds(r, args.fail_on) for r in reports) else 0
 
