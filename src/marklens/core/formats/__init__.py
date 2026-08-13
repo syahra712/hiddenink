@@ -48,9 +48,8 @@ def detect_format(data: bytes, path: str | None = None) -> str | None:
     if data.startswith(b"PK\x03\x04"):
         return "office"
     head = data[:512].lstrip()
-    if head.startswith(b"<?xml") or head.startswith(b"<svg"):
-        if b"<svg" in data[:4096]:
-            return "svg"
+    if head.startswith((b"<?xml", b"<svg")) and b"<svg" in data[:4096]:
+        return "svg"
     if path and Path(path).suffix.lower() == ".svg":
         return "svg"
     return None

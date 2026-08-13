@@ -67,8 +67,9 @@ def build_jpeg(*, exif: bool = False, xmp: str = "", c2pa: bool = False) -> byte
 def build_docx(title: str = "Quarterly Report", creator: str = "Some Tool") -> bytes:
     core = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<cp:coreProperties '
-        'xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+        "<cp:coreProperties "
+        'xmlns:cp="http://schemas.openxmlformats.org/package/2006'
+        '/metadata/core-properties" '
         'xmlns:dc="http://purl.org/dc/elements/1.1/">'
         f"<dc:title>{title}</dc:title>"
         f"<dc:creator>{creator}</dc:creator>"
