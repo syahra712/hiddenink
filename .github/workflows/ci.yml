@@ -5,8 +5,34 @@ on:
     branches: [main]
   pull_request:
 
+# A superseded push has nothing useful left to say; cancel it rather than
+# paying for a run whose result nobody will read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
+  lint:
+    name: lint + types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check src tests
+      - name: Mypy (strict)
+        run: mypy
+
   test:
+    name: py${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,10 +44,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install
-        run: pip install -e ".[dev]"
-      - name: Lint
-        run: ruff check src tests
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
       - name: Test
         run: pytest -q
       - name: Smoke-test the CLI
@@ -29,28 +54,42 @@ jobs:
           marklens --version
           marklens inspect README.md --quiet
 
-  # The core's zero-dependency guarantee is load-bearing: it is why the trust
-  # story is auditable. Verify it in an environment with nothing else present.
+  # The zero-dependency guarantee is load-bearing -- it is the reason the trust
+  # story is auditable end to end -- so it gets verified in an environment with
+  # nothing else installed, not just asserted in the README.
   zero-dependency:
+    name: zero-dependency install
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install without any extras
+      - name: Install with no extras
         run: pip install .
-      - name: Assert nothing third-party was pulled in
+      - name: Assert nothing third-party came with it
         run: |
           python - <<'PY'
-          import subprocess, sys
+          import re, subprocess, sys
+
           frozen = subprocess.run(
               [sys.executable, "-m", "pip", "freeze"],
               capture_output=True, text=True, check=True,
-          ).stdout.split()
-          extra = [p for p in frozen if not p.lower().startswith("marklens")]
+          ).stdout
+
+          # A local install freezes as "marklens @ file:///path", so splitting on
+          # whitespace yields three tokens and treats "@" as a dependency. Parse
+          # the distribution name off the front of each *line* instead.
+          names = []
+          for line in frozen.splitlines():
+              line = line.strip()
+              if not line or line.startswith(("#", "-e ")):
+                  continue
+              names.append(re.split(r"[\s@=<>!~\[]", line, maxsplit=1)[0].lower())
+
+          extra = [n for n in names if n != "marklens"]
           assert not extra, f"core install pulled in dependencies: {extra}"
-          print("OK: marklens installs with zero dependencies")
+          print(f"OK: zero dependencies (pip freeze -> {names})")
           PY
       - name: CLI works on a clean install
         run: marklens inspect README.md --quiet

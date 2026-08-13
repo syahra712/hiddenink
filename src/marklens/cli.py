@@ -9,9 +9,11 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .core.clean_text import Profile, clean_text
@@ -42,7 +44,7 @@ _PROFILE_BY_SUFFIX = {
 }
 
 
-def _use_colour(stream) -> bool:
+def _use_colour(stream: Any) -> bool:
     return hasattr(stream, "isatty") and stream.isatty()
 
 
@@ -170,7 +172,12 @@ def _exceeds(report: Report, threshold: Severity | None) -> bool:
     return any(_SEVERITY_ORDER[f.severity] >= want for f in report.findings)
 
 
-def _emit(reports: list[Report], args, style: _Style, stream=None) -> None:
+def _emit(
+    reports: list[Report],
+    args: argparse.Namespace,
+    style: _Style,
+    stream: Any = None,
+) -> None:
     stream = stream or sys.stdout
     if args.json:
         payload = [r.to_dict() for r in reports]
@@ -181,14 +188,14 @@ def _emit(reports: list[Report], args, style: _Style, stream=None) -> None:
                           for r in reports), file=stream)
 
 
-def cmd_inspect(args) -> int:
+def cmd_inspect(args: argparse.Namespace) -> int:
     style = _Style(_use_colour(sys.stdout) and not args.json)
     reports = [_inspect_path(path, args.context) for path in args.paths]
     _emit(reports, args, style)
     return 1 if any(_exceeds(r, args.fail_on) for r in reports) else 0
 
 
-def cmd_clean(args) -> int:
+def cmd_clean(args: argparse.Namespace) -> int:
     # When cleaned text goes to stdout the report must not, or the two get
     # interleaved into a file the user then saves.
     to_stdout = not (args.in_place or args.dry_run or args.check)
@@ -293,13 +300,31 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _disable_newline_translation() -> None:
+    """Stop stdout rewriting line endings.
+
+    On Windows a text stream opened with ``newline=None`` translates every
+    ``\\n`` on the way out, so ``marklens clean f.md > out.md`` would silently
+    convert the whole file to CRLF. The in-place path already opens files with
+    ``newline=""``; this closes the same hole on the pipe.
+    """
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        # A detached or non-seekable stream refuses to be reconfigured. There
+        # is nothing to do and nothing to report: the write still succeeds, it
+        # just may translate on that one platform.
+        with contextlib.suppress(ValueError, OSError):
+            reconfigure(newline="")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _disable_newline_translation()
     if not args.paths:
         args.paths = ["-"]
     try:
-        return args.func(args)
+        return int(args.func(args))
     except (OSError, UnicodeDecodeError) as exc:
         print(f"marklens: {exc}", file=sys.stderr)
         return 2

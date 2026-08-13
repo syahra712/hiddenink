@@ -55,7 +55,9 @@ def detect_format(data: bytes, path: str | None = None) -> str | None:
     return None
 
 
-def parse_bytes(data: bytes, path: str | None = None) -> tuple[str | None, dict]:
+def parse_bytes(
+    data: bytes, path: str | None = None
+) -> tuple[str | None, dict[str, Any]]:
     """Return ``(format_name, metadata)`` for a byte string."""
     fmt = detect_format(data, path)
     if fmt is None:

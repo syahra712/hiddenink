@@ -47,12 +47,12 @@ def _decode_text_chunk(chunk_type: bytes, data: bytes) -> tuple[str, str]:
             raw, truncated = bounded_decompress(rest[1:])
         except zlib.error:
             return keyword.decode("latin-1"), "<undecompressible>"
-        value = raw.decode("latin-1", "replace")
+        decoded = raw.decode("latin-1", "replace")
         if truncated:
             # Prefixed, not appended: parse_png caps the reported value at 200
             # characters, which would cut a trailing marker off entirely.
-            value = "<truncated at decompression limit> " + value
-        return keyword.decode("latin-1"), value
+            decoded = "<truncated at decompression limit> " + decoded
+        return keyword.decode("latin-1"), decoded
 
     # iTXt: keyword \0 compression_flag compression_method language \0
     #       translated_keyword \0 text
@@ -65,9 +65,10 @@ def _decode_text_chunk(chunk_type: bytes, data: bytes) -> tuple[str, str]:
     _translated, _, text = rest.partition(b"\x00")
     if compressed:
         try:
-            text, truncated = bounded_decompress(text)
+            inflated, truncated = bounded_decompress(text)
         except zlib.error:
             return keyword.decode("latin-1"), "<undecompressible>"
+        text = inflated
         if truncated:
             return keyword.decode("latin-1"), (
                 "<truncated at decompression limit> " + text.decode("utf-8", "replace")
