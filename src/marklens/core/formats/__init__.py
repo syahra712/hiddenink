@@ -63,13 +63,28 @@ def parse_bytes(data: bytes, path: str | None = None) -> tuple[str | None, dict]
     return fmt, _PARSERS[fmt](data)
 
 
+#: Containers that are themselves text, and so can carry invisible codepoints
+#: in their markup as well as metadata in their structure. Reporting only the
+#: metadata for these would miss half of what the user asked about.
+_TEXTUAL_CONTAINERS = {"svg"}
+
+
 def inspect_file(path: str | Path) -> Report:
-    """Inspect a binary container and report its embedded metadata."""
+    """Inspect a container and report its embedded metadata.
+
+    For text-based containers the codepoint scan runs too, so a single call
+    covers both layers.
+    """
     p = Path(path)
     data = p.read_bytes()
     fmt, metadata = parse_bytes(data, str(p))
 
     report = Report(source=str(p), kind=fmt or "unknown", metadata=metadata)
+
+    if fmt in _TEXTUAL_CONTAINERS:
+        from ..inspect_text import iter_findings
+
+        report.findings = list(iter_findings(data.decode("utf-8", "replace")))
 
     if fmt is None:
         report.undeterminable.append(

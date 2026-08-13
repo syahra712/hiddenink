@@ -47,9 +47,10 @@ Issues = "https://github.com/72004/marklens/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/marklens"]
+artifacts = ["src/marklens/py.typed"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src"]
 addopts = "--doctest-modules"
 
 [tool.ruff]

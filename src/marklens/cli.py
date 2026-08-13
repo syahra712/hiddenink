@@ -26,6 +26,10 @@ _SEVERITY_ORDER = {
     Severity.INVISIBLE: 3,
 }
 
+#: Containers that are text underneath, so ``clean`` can rewrite them safely.
+#: Everything else is binary and is refused with a pointer to ``inspect``.
+_CLEANABLE_CONTAINERS = {"svg"}
+
 _PROFILE_BY_SUFFIX = {
     ".md": Profile.PROSE,
     ".markdown": Profile.PROSE,
@@ -125,7 +129,24 @@ def _read(path: str) -> tuple[str, str]:
     if path == "-":
         return sys.stdin.read(), "<stdin>"
     p = Path(path)
-    return p.read_text(encoding="utf-8", errors="surrogatepass"), str(p)
+    # newline="" keeps line endings exactly as they are on disk; without it
+    # Python translates them on read and again on write, so a tool that
+    # promises byte-level diffs would silently rewrite every line on Windows.
+    with p.open("r", encoding="utf-8", errors="surrogatepass", newline="") as handle:
+        return handle.read(), str(p)
+
+
+def _write(path: Path, text: str) -> None:
+    """Write text back, preserving what :func:`_read` was able to accept.
+
+    Both the encoding error handler and the newline policy have to match the
+    read side. ``surrogatepass`` in particular: without it, any file
+    containing a lone surrogate can be read and inspected but explodes on
+    write, which turns ``--in-place`` into a crash on exactly the malformed
+    input this tool exists to examine.
+    """
+    with path.open("w", encoding="utf-8", errors="surrogatepass", newline="") as handle:
+        handle.write(text)
 
 
 def _inspect_path(path: str, context: int) -> Report:
@@ -149,14 +170,15 @@ def _exceeds(report: Report, threshold: Severity | None) -> bool:
     return any(_SEVERITY_ORDER[f.severity] >= want for f in report.findings)
 
 
-def _emit(reports: list[Report], args, style: _Style) -> None:
+def _emit(reports: list[Report], args, style: _Style, stream=None) -> None:
+    stream = stream or sys.stdout
     if args.json:
         payload = [r.to_dict() for r in reports]
         print(json.dumps(payload if len(payload) != 1 else payload[0], indent=2,
-                         ensure_ascii=False))
+                         ensure_ascii=False), file=stream)
     else:
         print("\n\n".join(_render(r, style, show_findings=not args.quiet)
-                          for r in reports))
+                          for r in reports), file=stream)
 
 
 def cmd_inspect(args) -> int:
@@ -167,9 +189,33 @@ def cmd_inspect(args) -> int:
 
 
 def cmd_clean(args) -> int:
-    style = _Style(_use_colour(sys.stderr) and not args.json)
+    # When cleaned text goes to stdout the report must not, or the two get
+    # interleaved into a file the user then saves.
+    to_stdout = not (args.in_place or args.dry_run or args.check)
+    style = _Style(_use_colour(sys.stderr if to_stdout else sys.stdout)
+                   and not args.json)
+
+    if to_stdout and len(args.paths) > 1:
+        print(
+            f"marklens: refusing to concatenate {len(args.paths)} files to stdout "
+            "(the result could not be split back apart). Use --in-place, or pass "
+            "one file at a time.",
+            file=sys.stderr,
+        )
+        return 2
+
     reports: list[Report] = []
     for path in args.paths:
+        if path != "-":
+            container = detect_format(Path(path).read_bytes(), path)
+            if container is not None and container not in _CLEANABLE_CONTAINERS:
+                print(
+                    f"marklens: {path} is a {container} container; clean operates on "
+                    f"text. Use 'marklens inspect {path}' to read its metadata.",
+                    file=sys.stderr,
+                )
+                return 2
+
         text, name = _read(path)
 
         profile = args.profile
@@ -181,20 +227,19 @@ def cmd_clean(args) -> int:
         reports.append(report)
 
         if args.in_place and path != "-":
-            if args.dry_run:
+            if args.dry_run or args.check or not report.changed:
                 continue
             p = Path(path)
             if args.backup:
-                p.with_suffix(p.suffix + ".bak").write_text(text, encoding="utf-8")
-            p.write_text(cleaned, encoding="utf-8")
-        elif not args.dry_run and not args.json:
+                _write(p.with_suffix(p.suffix + ".bak"), text)
+            _write(p, cleaned)
+        elif to_stdout:
             sys.stdout.write(cleaned)
 
-    if args.in_place or args.dry_run or args.json:
-        _emit(reports, args, style)
-    else:
-        print("\n\n".join(_render(r, style, show_findings=False) for r in reports),
-              file=sys.stderr)
+    _emit(reports, args, style, stream=sys.stderr if to_stdout else sys.stdout)
+
+    if args.check and any(r.changed for r in reports):
+        return 1
     return 0
 
 
@@ -235,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="prose|code|data (default: inferred from file extension)")
     p_clean.add_argument("--dry-run", action="store_true",
                          help="report what would change without writing")
+    p_clean.add_argument("--check", action="store_true",
+                         help="exit 1 if any file would change; writes nothing")
     p_clean.add_argument("-i", "--in-place", action="store_true",
                          help="rewrite files instead of writing to stdout")
     p_clean.add_argument("--backup", action="store_true",

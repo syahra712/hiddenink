@@ -8,6 +8,8 @@ import zipfile
 from io import BytesIO
 from typing import Any
 
+from ._safety import MAX_DECOMPRESSED_BYTES, UnsafeDocument, safe_fromstring
+
 __all__ = ["parse_svg", "parse_office", "parse_pdf"]
 
 
@@ -20,7 +22,9 @@ def parse_svg(data: bytes) -> dict[str, Any]:
     """Extract metadata elements from an SVG document."""
     found: dict[str, Any] = {}
     try:
-        root = ET.fromstring(data.decode("utf-8", "replace"))
+        root = safe_fromstring(data)
+    except UnsafeDocument as exc:
+        return {"svg.unsafe": str(exc)}
     except ET.ParseError:
         return {"svg.parse_error": "document is not well-formed XML"}
 
@@ -69,8 +73,20 @@ def parse_office(data: bytes) -> dict[str, Any]:
         if part not in names:
             continue
         try:
-            root = ET.fromstring(archive.read(part).decode("utf-8", "replace"))
-        except (ET.ParseError, KeyError, OSError):
+            # Bounded read: a metadata part that claims to be enormous is a
+            # decompression bomb, not a document we need to parse.
+            if archive.getinfo(part).file_size > MAX_DECOMPRESSED_BYTES:
+                found[f"office.{label}.oversized"] = (
+                    f"{archive.getinfo(part).file_size} bytes, skipped"
+                )
+                continue
+            with archive.open(part) as handle:
+                raw = handle.read(MAX_DECOMPRESSED_BYTES)
+            root = safe_fromstring(raw)
+        except UnsafeDocument as exc:
+            found[f"office.{label}.unsafe"] = str(exc)
+            continue
+        except (ET.ParseError, KeyError, OSError, zipfile.BadZipFile):
             continue
         for element in root.iter():
             tag = element.tag.rsplit("}", 1)[-1]

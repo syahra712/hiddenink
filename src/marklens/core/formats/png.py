@@ -18,6 +18,8 @@ import struct
 import zlib
 from typing import Any
 
+from ._safety import bounded_decompress
+
 __all__ = ["parse_png", "PNG_SIGNATURE"]
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -42,9 +44,14 @@ def _decode_text_chunk(chunk_type: bytes, data: bytes) -> tuple[str, str]:
         keyword, _, rest = data.partition(b"\x00")
         # rest[0] is the compression method; the remainder is zlib data.
         try:
-            value = zlib.decompress(rest[1:]).decode("latin-1", "replace")
+            raw, truncated = bounded_decompress(rest[1:])
         except zlib.error:
-            value = "<undecompressible>"
+            return keyword.decode("latin-1"), "<undecompressible>"
+        value = raw.decode("latin-1", "replace")
+        if truncated:
+            # Prefixed, not appended: parse_png caps the reported value at 200
+            # characters, which would cut a trailing marker off entirely.
+            value = "<truncated at decompression limit> " + value
         return keyword.decode("latin-1"), value
 
     # iTXt: keyword \0 compression_flag compression_method language \0
@@ -58,9 +65,13 @@ def _decode_text_chunk(chunk_type: bytes, data: bytes) -> tuple[str, str]:
     _translated, _, text = rest.partition(b"\x00")
     if compressed:
         try:
-            text = zlib.decompress(text)
+            text, truncated = bounded_decompress(text)
         except zlib.error:
             return keyword.decode("latin-1"), "<undecompressible>"
+        if truncated:
+            return keyword.decode("latin-1"), (
+                "<truncated at decompression limit> " + text.decode("utf-8", "replace")
+            )
     return keyword.decode("latin-1"), text.decode("utf-8", "replace")
 
 

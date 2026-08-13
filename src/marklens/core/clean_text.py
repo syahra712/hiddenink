@@ -154,9 +154,10 @@ def _strip_invisible(text: str) -> tuple[str, int]:
     for index, ch in enumerate(text):
         cp = ord(ch)
         info = classify(cp)
-        if info is None or info.severity is not Severity.INVISIBLE:
-            kept.append(ch)
-        elif cp in (0xFE0E, 0xFE0F) and is_emoji_variation_selector(text, index):
+        keep = info is None or info.severity is not Severity.INVISIBLE or (
+            cp in (0xFE0E, 0xFE0F) and is_emoji_variation_selector(text, index)
+        )
+        if keep:
             kept.append(ch)
         else:
             removed += 1

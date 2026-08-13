@@ -7,6 +7,7 @@ the charter in the same pull request, deliberately.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -88,7 +89,7 @@ class TestRule4CoreHasNoThirdPartyImports:
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
-            env={"PYTHONPATH": str(SRC), "PATH": "/usr/bin:/bin"},
+            env={**os.environ, "PYTHONPATH": str(SRC)},
             check=True,
         )
         leaked = result.stdout.strip()
