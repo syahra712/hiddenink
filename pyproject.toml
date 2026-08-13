@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "marklens"
+version = "0.1.0"
+description = "Inspect and clean AI provenance marks in text and files — honestly."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Syed Ahnaf Raza" }]
+keywords = [
+    "watermark", "provenance", "c2pa", "unicode", "zero-width",
+    "ai-detection", "text-hygiene", "trojan-source",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: Linguistic",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+# The core is deliberately dependency-free: it must be auditable end to end
+# and installable in an air-gapped environment.
+dependencies = []
+
+[project.optional-dependencies]
+c2pa = ["c2pa-python>=0.7"]
+research = ["transformers>=4.46", "torch>=2.0", "numpy>=1.24", "scipy>=1.10"]
+dev = ["pytest>=7", "ruff>=0.5", "mypy>=1.8"]
+
+[project.scripts]
+marklens = "marklens.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/72004/marklens"
+Issues = "https://github.com/72004/marklens/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/marklens"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--doctest-modules"
+
+[tool.ruff]
+line-length = 90
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/marklens"]
