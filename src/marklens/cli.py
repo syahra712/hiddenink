@@ -300,27 +300,44 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _disable_newline_translation() -> None:
-    """Stop stdout rewriting line endings.
+def _configure_streams() -> None:
+    """Make stdout safe for both file content and report glyphs.
 
-    On Windows a text stream opened with ``newline=None`` translates every
-    ``\\n`` on the way out, so ``marklens clean f.md > out.md`` would silently
-    convert the whole file to CRLF. The in-place path already opens files with
-    ``newline=""``; this closes the same hole on the pipe.
+    Two Windows-specific hazards, and they pull in opposite directions:
+
+    *Newline translation.* A text stream opened with ``newline=None``
+    translates every ``\\n`` on the way out, so ``clean f.md > out.md`` would
+    rewrite the line endings of the file it was asked to preserve -- and on a
+    CRLF input the surviving ``\\r`` would make it ``\\r\\r\\n``.
+
+    *Encoding.* The default console encoding is a legacy codepage such as
+    cp1252, which cannot represent the report's box-drawing characters. It
+    also cannot represent whatever happens to be inside the files being
+    inspected: a PNG text chunk holding CJK would crash the process just as
+    readily. UTF-8 covers both.
+
+    stdout gets real UTF-8 rather than a replacing error handler, because it
+    carries cleaned file content and a lossy substitution there would be
+    silent data corruption. stderr carries only human-readable text, so it can
+    afford ``backslashreplace`` as a last resort.
     """
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        # A detached or non-seekable stream refuses to be reconfigured. There
-        # is nothing to do and nothing to report: the write still succeeds, it
-        # just may translate on that one platform.
-        with contextlib.suppress(ValueError, OSError):
-            reconfigure(newline="")
+    stdout_reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if stdout_reconfigure is not None:
+        # Detached, non-seekable, or already-wrapped streams refuse. The write
+        # still succeeds afterwards; it just keeps the platform default.
+        with contextlib.suppress(ValueError, OSError, LookupError):
+            stdout_reconfigure(encoding="utf-8", newline="")
+
+    stderr_reconfigure = getattr(sys.stderr, "reconfigure", None)
+    if stderr_reconfigure is not None:
+        with contextlib.suppress(ValueError, OSError, LookupError):
+            stderr_reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    _disable_newline_translation()
+    _configure_streams()
     if not args.paths:
         args.paths = ["-"]
     try:

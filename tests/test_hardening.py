@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import struct
+import sys
 import time
 import zipfile
 import zlib
@@ -170,6 +171,43 @@ class TestCliSafety:
         captured = capsys.readouterr()
         assert captured.out == "ab\n"  # cleaned text, not discarded
         assert '"not_determinable"' in captured.err
+
+
+class TestLegacyCodepageOutput:
+    """The report must not crash on a non-UTF-8 console.
+
+    Windows defaults to a legacy codepage such as cp1252, which cannot encode
+    the report's box-drawing characters -- nor arbitrary text lifted out of the
+    files being inspected. This reproduces that console on any platform by
+    swapping stdout for a cp1252 stream.
+    """
+
+    def _cp1252_stdout(self, monkeypatch) -> io.TextIOWrapper:
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="")
+        monkeypatch.setattr(sys, "stdout", stream)
+        return stream
+
+    def test_report_glyphs_do_not_crash(self, tmp_path, monkeypatch) -> None:
+        stream = self._cp1252_stdout(monkeypatch)
+        p = tmp_path / "f.md"
+        p.write_text("a​b—c…", encoding="utf-8")
+        assert main(["inspect", str(p)]) == 0
+        stream.flush()  # would raise UnicodeEncodeError unencoded
+
+    def test_untrusted_file_metadata_does_not_crash(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A PNG text chunk can hold anything; cp1252 can hold very little."""
+        stream = self._cp1252_stdout(monkeypatch)
+        p = tmp_path / "f.png"
+        p.write_bytes(
+            PNG_SIGNATURE
+            + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            + _png_chunk(b"tEXt", "Software\x00図書館ソフト".encode("latin-1", "replace"))
+            + _png_chunk(b"IEND", b"")
+        )
+        assert main(["inspect", str(p)]) == 0
+        stream.flush()
 
 
 class TestLineEndingFidelity:
