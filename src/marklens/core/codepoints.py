@@ -21,6 +21,7 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Iterable
 from enum import Enum
+from functools import lru_cache
 from typing import NamedTuple
 
 __all__ = [
@@ -216,6 +217,14 @@ def _unicode_name(cp: int) -> str:
 
 def _category_of(cp: int) -> Category | None:
     """Map a codepoint to a Category, or None if it is unremarkable."""
+    # Fast path. Text is overwhelmingly ASCII, and the only ASCII codepoints
+    # of interest are the C0 controls. Short-circuiting here avoids a
+    # ``unicodedata.category`` call per character, which dominates the scan.
+    if cp < 0x80:
+        if cp < 0x20 or cp == 0x7F:
+            return None if cp in _ALLOWED_CONTROLS else Category.CONTROL
+        return None
+
     if cp in ZERO_WIDTH:
         return Category.ZERO_WIDTH
     if cp in BIDI_CONTROL:
@@ -250,8 +259,15 @@ def _category_of(cp: int) -> Category | None:
     return None
 
 
+@lru_cache(maxsize=8192)
 def classify(cp: int) -> CodepointInfo | None:
     """Classify a codepoint, or return None if it is unremarkable.
+
+    Cached: a document draws on few distinct codepoints, so this collapses to
+    a dict hit after the first occurrence of each. The cache is safe because
+    the function is pure and :class:`CodepointInfo` is immutable, and it keeps
+    ``unicodedata`` as the authority on general category rather than freezing
+    a table against one Unicode version.
 
     >>> classify(0x200B).category
     <Category.ZERO_WIDTH: 'zero_width'>
