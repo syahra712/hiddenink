@@ -1,0 +1,74 @@
+name: Release
+
+# Publishes to PyPI when a version tag is pushed.
+#
+# Uses PyPI Trusted Publishing (OIDC), so there is no API token stored anywhere
+# in this repository or in GitHub secrets. PyPI verifies the workflow identity
+# directly. A leaked token cannot be the failure mode if no token exists.
+#
+# One-time setup, on PyPI -> hiddenink -> Manage -> Publishing -> Add:
+#   Owner:              syahra712
+#   Repository:         hiddenink
+#   Workflow filename:  release.yml
+#   Environment:        pypi
+#
+# Then create a GitHub environment named `pypi` (Settings -> Environments) and
+# optionally require a manual approval on it, so a tag push cannot publish
+# without a human clicking through.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Never publish something that has not passed the same gates as main. The
+  # release-integrity checks matter most here: they are what stops a stale
+  # README reaching a project page that can never be corrected in place.
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" build "twine>=6.1" "packaging>=25"
+      - run: ruff check src tests
+      - run: mypy
+      - run: pytest -q
+      - name: Build
+        run: python -m build
+      - name: Artifact must match the repository
+        run: pytest tests/test_release.py -q
+      - name: Tag must match the declared version
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+          tag = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          declared = re.search(r'^version = "([^"]+)"', text, re.M).group(1)
+          assert tag == declared, f"tag v{tag} != pyproject version {declared}"
+          print(f"OK: tag and version agree on {declared}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: publish to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required for Trusted Publishing; nothing else
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
