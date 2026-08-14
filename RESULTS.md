@@ -19,7 +19,7 @@ correct or that unseen inputs will be preserved.
 
 | tool | repository | revision | command | date | runtime |
 |---|---|---|---|---|---|
-| hiddenink | https://github.com/syahra712/hiddenink | release 0.2.0 (working tree) | in-process hiddenink_adapter(profile=prose) | 2026-08-14 | CPython 3.12.10; macOS-13.7.8-x86_64-i386-64bit |
+| hiddenink | https://github.com/syahra712/hiddenink | release 0.2.1 (working tree) | in-process hiddenink_adapter(profile=prose) | 2026-08-14 | CPython 3.12.10; macOS-13.7.8-x86_64-i386-64bit |
 
 No external competitor result is published in this release. Earlier tables
 compared multiple flag combinations of one repository and described that as a

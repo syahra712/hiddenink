@@ -2,6 +2,12 @@
 
 Notable changes per release. Dates use ISO 8601.
 
+## [0.2.1] — 2026-08-14
+
+- Kept codepoints from newer Unicode script blocks inside mixed-script token
+  analysis on Python 3.10 and 3.11, whose bundled Unicode databases predate
+  those assignments.
+
 ## [0.2.0] — 2026-08-14
 
 Release-hardening update. This version deliberately narrows earlier product

@@ -145,7 +145,16 @@ def _is_word_character(ch: str) -> bool:
     # Connector punctuation belongs to identifiers.  Period and hyphen do not:
     # treating them as word characters merged ordinary bilingual compounds and
     # adjacent sentences into one "mixed-script" run.
-    return ch.isalnum() or ch == "_"
+    if ch.isalnum() or ch == "_":
+        return True
+
+    # Python's bundled Unicode database predates the newest script blocks on
+    # some supported interpreters (notably 3.10 and 3.11).  A codepoint that our
+    # deliberately version-independent script table recognizes can therefore
+    # still look unassigned to ``str.isalnum()``.  Keep those codepoints inside
+    # an identifier run, while leaving known punctuation in the same broad
+    # script ranges as separators.
+    return unicodedata.category(ch) == "Cn" and script_of(ord(ch)) is not COMMON
 
 
 def suspicious_runs(
