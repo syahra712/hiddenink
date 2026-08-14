@@ -51,7 +51,7 @@ from .codepoints import (
     EXOTIC_SPACE,
     Severity,
     classify,
-    is_emoji_variation_selector,
+    is_load_bearing,
 )
 from .report import Report
 
@@ -139,28 +139,34 @@ def protected_regions(text: str) -> list[tuple[int, int, _Mode]]:
 
 
 def _strip_invisible(text: str) -> tuple[str, int]:
-    """Phase 1: remove every invisible codepoint, everywhere.
+    """Phase 1: remove every invisible codepoint that is not load-bearing.
 
-    Emoji presentation sequences are content, not contraband, so they survive.
+    Load-bearing invisibles survive: emoji presentation sequences, the ZWJ that
+    fuses a family emoji, the ZWNJ that spells a Devanagari or Persian word, and
+    the tag characters inside a subdivision flag. Stripping those is not
+    cleaning, it is corruption -- and unlike a global opt-out flag, the decision
+    is made per occurrence, so a hidden joiner between two Latin letters still
+    goes.
     """
     if text.isascii():
         # The only invisibles reachable in ASCII are the C0 controls, and no
-        # emoji exception can apply, so this is a single C-level pass.
+        # load-bearing exception can apply, so this is a single C-level pass.
         out = text.translate(_ASCII_CONTROL_DELETE)
         return out, len(text) - len(out)
 
     kept: list[str] = []
     removed = 0
     for index, ch in enumerate(text):
-        cp = ord(ch)
-        info = classify(cp)
-        keep = info is None or info.severity is not Severity.INVISIBLE or (
-            cp in (0xFE0E, 0xFE0F) and is_emoji_variation_selector(text, index)
+        info = classify(ord(ch))
+        contraband = (
+            info is not None
+            and info.severity is Severity.INVISIBLE
+            and not is_load_bearing(text, index)
         )
-        if keep:
-            kept.append(ch)
-        else:
+        if contraband:
             removed += 1
+        else:
+            kept.append(ch)
     return "".join(kept), removed
 
 

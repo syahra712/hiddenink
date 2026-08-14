@@ -17,7 +17,7 @@ import pytest
 
 from marklens.cli import main
 from marklens.core.clean_text import Profile, clean_text
-from marklens.core.codepoints import Severity, classify, is_emoji_variation_selector
+from marklens.core.codepoints import Severity, classify, is_load_bearing
 from marklens.core.formats import inspect_file
 from marklens.core.formats._safety import (
     MAX_DECOMPRESSED_BYTES,
@@ -291,6 +291,6 @@ class TestIdempotenceFuzz:
                 info = classify(ord(ch))
                 if info is None or info.severity is not Severity.INVISIBLE:
                     continue
-                assert is_emoji_variation_selector(once, index), (
+                assert is_load_bearing(once, index), (
                     f"{info.escape} survived clean: {once!r}"
                 )

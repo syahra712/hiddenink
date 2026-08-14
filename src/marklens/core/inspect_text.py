@@ -10,7 +10,7 @@ import re
 from bisect import bisect_right
 from collections.abc import Iterator
 
-from .codepoints import Severity, classify, is_emoji_variation_selector
+from .codepoints import Severity, classify, is_load_bearing
 from .report import Finding, Report
 
 __all__ = ["inspect_text", "iter_findings", "render_context"]
@@ -59,9 +59,11 @@ def render_context(text: str, index: int, width: int = _DEFAULT_CONTEXT) -> str:
             out.append(ch)  # printable ASCII is never hidden
             continue
         info = classify(cp)
-        hidden = info is not None and info.severity is Severity.INVISIBLE
-        if hidden and cp in (0xFE0E, 0xFE0F) and is_emoji_variation_selector(text, i):
-            hidden = False  # part of an emoji, not contraband
+        hidden = (
+            info is not None
+            and info.severity is Severity.INVISIBLE
+            and not is_load_bearing(text, i)
+        )
         out.append("·" if hidden else ch)
     prefix = "…" if start > 0 else ""
     suffix = "…" if end < len(text) else ""
@@ -73,20 +75,21 @@ def iter_findings(
 ) -> Iterator[Finding]:
     """Yield a :class:`Finding` for every flagged codepoint in ``text``.
 
-    Legitimate emoji presentation sequences are not flagged: stripping the
-    variation selector out of an emoji corrupts it, so treating every
-    U+FE00..U+FE0F as contraband is a correctness bug, not caution.
+    Load-bearing invisibles are not flagged. An emoji presentation sequence, a
+    ZWJ gluing a family emoji together, a ZWNJ spelling a Devanagari word, the
+    tag characters inside a subdivision flag -- all of these are content, and
+    reporting them as contraband would invite the user to corrupt their own
+    document. See :func:`~marklens.core.codepoints.is_load_bearing`.
     """
     starts: list[int] | None = None
 
     for match in _CANDIDATE.finditer(text):
         index = match.start()
-        cp = ord(text[index])
 
-        info = classify(cp)
+        info = classify(ord(text[index]))
         if info is None:
             continue
-        if cp in (0xFE0E, 0xFE0F) and is_emoji_variation_selector(text, index):
+        if info.severity is Severity.INVISIBLE and is_load_bearing(text, index):
             continue
 
         # Built once, and only if the document actually has a finding.

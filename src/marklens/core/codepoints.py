@@ -30,6 +30,8 @@ __all__ = [
     "CodepointInfo",
     "classify",
     "is_emoji_variation_selector",
+    "is_load_bearing",
+    "SCRIPT_INVISIBLE",
     "ASCII_FOLD",
 ]
 
@@ -58,6 +60,7 @@ class Category(str, Enum):
     PRIVATE_USE = "private_use"
     CONTROL = "control"
     SOFT_HYPHEN = "soft_hyphen"
+    SCRIPT_INVISIBLE = "script_invisible"
     EXOTIC_SPACE = "exotic_space"
     SMART_QUOTE = "smart_quote"
     DASH = "dash"
@@ -75,6 +78,7 @@ _SEVERITY_OF: dict[Category, Severity] = {
     Category.PRIVATE_USE: Severity.INVISIBLE,
     Category.CONTROL: Severity.INVISIBLE,
     Category.SOFT_HYPHEN: Severity.INVISIBLE,
+    Category.SCRIPT_INVISIBLE: Severity.INVISIBLE,
     Category.EXOTIC_SPACE: Severity.WHITESPACE,
     Category.SMART_QUOTE: Severity.TYPOGRAPHIC,
     Category.DASH: Severity.TYPOGRAPHIC,
@@ -124,6 +128,25 @@ VARIATION_SELECTORS = frozenset({*range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0
 
 #: Control characters we tolerate: tab, newline, carriage return.
 _ALLOWED_CONTROLS = frozenset({0x09, 0x0A, 0x0D})
+
+#: Invisible characters belonging to specific scripts. These are ``Mn`` or
+#: ``Lo`` in general category, not ``Cf``, so the format-character fallback
+#: never sees them -- they have to be named explicitly.
+SCRIPT_INVISIBLE = frozenset(
+    {
+        0x034F,  # COMBINING GRAPHEME JOINER
+        0x115F,  # HANGUL CHOSEONG FILLER
+        0x1160,  # HANGUL JUNGSEONG FILLER
+        0x17B4,  # KHMER VOWEL INHERENT AQ
+        0x17B5,  # KHMER VOWEL INHERENT AA
+        *range(0x180B, 0x180F),  # MONGOLIAN FREE VARIATION SELECTORS + separator
+    }
+)
+
+#: Zero-width joiners. Contraband when hiding between Latin letters, essential
+#: when doing orthographic or emoji work -- see :func:`is_load_bearing`.
+ZWJ = 0x200D
+ZWNJ = 0x200C
 
 #: Folding table used by the ``code`` and ``data`` clean profiles, where a
 #: smart quote is a syntax error rather than typography.
@@ -184,6 +207,140 @@ def is_emoji_variation_selector(text: str, index: int) -> bool:
     return nxt == 0x20E3
 
 
+# --- load-bearing invisibles --------------------------------------------------
+
+#: Scripts in which U+200C/U+200D are orthography rather than contraband.
+#: Removing a ZWNJ from Devanagari or Persian changes how a word is spelled and
+#: can change what it means, so a cleaner that strips them unconditionally
+#: corrupts every document written in these scripts.
+_JOINING_SCRIPT_RANGES: tuple[tuple[int, int], ...] = (
+    (0x0590, 0x05FF),  # Hebrew
+    (0x0600, 0x06FF),  # Arabic
+    (0x0700, 0x074F),  # Syriac
+    (0x0750, 0x077F),  # Arabic Supplement
+    (0x0780, 0x07BF),  # Thaana
+    (0x07C0, 0x07FF),  # NKo
+    (0x0800, 0x083F),  # Samaritan
+    (0x0840, 0x085F),  # Mandaic
+    (0x0860, 0x08FF),  # Syriac Sup., Arabic Ext.
+    (0x0900, 0x0DFF),  # Devanagari through Sinhala (all Indic)
+    (0x0E00, 0x0EFF),  # Thai, Lao
+    (0x0F00, 0x0FFF),  # Tibetan
+    (0x1000, 0x109F),  # Myanmar
+    (0x1780, 0x17FF),  # Khmer
+    (0x1800, 0x18AF),  # Mongolian
+    (0x1B80, 0x1BBF),  # Sundanese
+    (0xA980, 0xA9DF),  # Javanese
+    (0xFB1D, 0xFDFF),  # Hebrew/Arabic presentation forms
+    (0xFE70, 0xFEFE),  # Arabic presentation forms-B
+    (0x10D00, 0x10D3F),  # Hanifi Rohingya
+    (0x1E900, 0x1E95F),  # Adlam
+)
+
+_SCRIPT_NEIGHBOUR_RANGES: dict[int, tuple[tuple[int, int], ...]] = {
+    0x115F: ((0x1100, 0x11FF), (0xAC00, 0xD7AF), (0x3130, 0x318F)),  # Hangul
+    0x1160: ((0x1100, 0x11FF), (0xAC00, 0xD7AF), (0x3130, 0x318F)),
+    0x17B4: ((0x1780, 0x17FF),),  # Khmer
+    0x17B5: ((0x1780, 0x17FF),),
+}
+
+#: The base of an emoji tag sequence (currently only subdivision flags).
+_TAG_SEQUENCE_BASE = 0x1F3F4
+_TAG_TERMINATOR = 0xE007F
+
+
+def _in_ranges(cp: int, ranges: tuple[tuple[int, int], ...]) -> bool:
+    return any(lo <= cp <= hi for lo, hi in ranges)
+
+
+def _neighbour(text: str, index: int, step: int) -> int:
+    """The nearest *visible* codepoint beside ``index``.
+
+    Every invisible character is skipped, not just variation selectors, because
+    the question being asked is which letter governs this mark -- and the answer
+    must not change when a neighbouring invisible is removed.
+
+    Skipping only some of them makes cleaning non-idempotent, and the failure is
+    subtle: U+180B..U+180E sit *inside* the Mongolian block, so one Mongolian
+    free variation selector would vouch for the next. A run of two would keep
+    one and drop one, and the next pass would drop the survivor.
+    """
+    position = index + step
+    while 0 <= position < len(text):
+        info = classify(ord(text[position]))
+        if info is None or info.severity is not Severity.INVISIBLE:
+            return ord(text[position])
+        position += step
+    return -1
+
+
+def _joins_emoji(text: str, index: int) -> bool:
+    """True if a ZWJ at ``index`` glues two emoji into one grapheme."""
+    return _is_emoji_base(_neighbour(text, index, -1)) and _is_emoji_base(
+        _neighbour(text, index, 1)
+    )
+
+
+def _joins_complex_script(text: str, index: int) -> bool:
+    """True if a ZWJ/ZWNJ at ``index`` is orthographic rather than hidden."""
+    return _in_ranges(_neighbour(text, index, -1), _JOINING_SCRIPT_RANGES) or _in_ranges(
+        _neighbour(text, index, 1), _JOINING_SCRIPT_RANGES
+    )
+
+
+def _in_emoji_tag_sequence(text: str, index: int) -> bool:
+    """True if a tag character at ``index`` spells out a subdivision flag.
+
+    An emoji tag sequence is U+1F3F4 followed by tag letters and closed by
+    U+E007F. Tag characters anywhere else are the most efficient
+    steganographic channel in Unicode and are always contraband.
+    """
+    position = index - 1
+    while position >= 0 and ord(text[position]) in TAG_BLOCK:
+        position -= 1
+    if position < 0 or ord(text[position]) != _TAG_SEQUENCE_BASE:
+        return False
+    # Must be terminated, or it is a truncated/forged sequence.
+    position = index
+    while position < len(text) and ord(text[position]) in TAG_BLOCK:
+        if ord(text[position]) == _TAG_TERMINATOR:
+            return True
+        position += 1
+    return False
+
+
+def is_load_bearing(text: str, index: int) -> bool:
+    """True if the invisible codepoint at ``index`` is doing real work.
+
+    The same codepoint can be contraband or essential depending only on what
+    surrounds it. A U+200D between two Latin letters is a hidden mark; the same
+    U+200D between two emoji is what makes a family a single glyph, and between
+    two Devanagari letters it is spelling.
+
+    Deciding this per occurrence is what separates cleaning from corruption.
+    Tools that expose it as one global switch have to choose between mangling
+    every Indic and Arabic document or leaving every hidden joiner in place.
+    """
+    cp = ord(text[index])
+
+    if cp in (0xFE0E, 0xFE0F):
+        return is_emoji_variation_selector(text, index)
+    if cp == ZWJ:
+        return _joins_emoji(text, index) or _joins_complex_script(text, index)
+    if cp == ZWNJ:
+        return _joins_complex_script(text, index)
+    if cp in TAG_BLOCK:
+        return _in_emoji_tag_sequence(text, index)
+    if cp in _SCRIPT_NEIGHBOUR_RANGES:
+        ranges = _SCRIPT_NEIGHBOUR_RANGES[cp]
+        return _in_ranges(_neighbour(text, index, -1), ranges) or _in_ranges(
+            _neighbour(text, index, 1), ranges
+        )
+    if 0x180B <= cp <= 0x180D:  # Mongolian free variation selectors
+        return _in_ranges(_neighbour(text, index, -1), ((0x1800, 0x18AF),))
+    return False
+
+
 # --- classification ----------------------------------------------------------
 
 
@@ -239,6 +396,8 @@ def _category_of(cp: int) -> Category | None:
         return Category.VARIATION_SELECTOR
     if cp == 0x00AD:
         return Category.SOFT_HYPHEN
+    if cp in SCRIPT_INVISIBLE:
+        return Category.SCRIPT_INVISIBLE
     if cp in EXOTIC_SPACE:
         return Category.EXOTIC_SPACE
     if cp in SMART_QUOTE:
