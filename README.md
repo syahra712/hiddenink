@@ -47,11 +47,13 @@ NOT DETERMINABLE  (no tool can decide these)
 
 ## Install
 
+Not on PyPI yet. Until it is:
+
 ```bash
-pip install marklens
+pip install git+https://github.com/syahra712/marklens
 ```
 
-The core has **no dependencies at all** — not a design accident, a requirement. A tool whose entire value is that its reports mean what they say has to be auditable end to end and installable in an air-gapped environment.
+The core has **no dependencies at all** — not a design accident, a requirement. A tool whose entire value is that its reports mean what they say has to be auditable end to end and installable in an air-gapped environment. `pip freeze` after installing it lists exactly one package, and CI asserts that on every commit.
 
 ## Use
 
