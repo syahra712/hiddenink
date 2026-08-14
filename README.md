@@ -60,6 +60,8 @@ marklens inspect essay.md              # what am I actually carrying?
 marklens inspect diagram.png           # C2PA / EXIF / XMP in a container
 marklens clean notes.md                # write cleaned text to stdout
 marklens clean -i src/*.py             # rewrite in place
+marklens clean -i screenshot.png       # strip EXIF/text chunks, keep provenance
+marklens clean --check src/            # exit 1 if anything needs cleaning (CI)
 marklens inspect . --json | jq         # machine-readable, for CI
 ```
 
@@ -107,7 +109,7 @@ These are refusals, not roadmap items.
 
 - **No statistical-watermark evasion.** No bundled "paraphrase until it stops registering" mode. It can't be verified, it's the one use [Anthropic's policy](https://www.anthropic.com/legal/aup) actually names ("presenting results as human-generated"), and the same machinery enables *spoofing* — [94.17% of adversarially edited texts stay above detection threshold](https://openreview.net/forum?id=rIOl7KbSkv), which lets someone inject fabricated claims into text that still reads as "Claude wrote this."
 - **No "is this AI?" verdict.** Keyless detection of a single document is [computationally intractable if the scheme meets cryptographic undetectability](https://arxiv.org/abs/2306.09194), and uncalibrated accusations are a documented harm, not a feature.
-- **No C2PA stripping.** `marklens` reads and verifies provenance. It does not destroy it.
+- **No provenance destruction.** `clean` rewrites container metadata under one rule: **remove metadata that identifies you, keep metadata that discloses AI involvement.** A PNG loses its text chunks and EXIF (GPS, camera serial, usernames, paths); it keeps its C2PA manifest. If you need the manifest gone, this is the wrong tool — and removing it would not make the file unmarked anyway, since C2PA soft bindings ride in the pixels.
 
 ## If you've been falsely accused
 

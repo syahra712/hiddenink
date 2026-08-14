@@ -143,9 +143,14 @@ class TestSurrogateRoundTrip:
 class TestCliSafety:
     """P1-9/10/11: silent data loss and unhelpful failures."""
 
-    def test_refuses_binary_container(self, tmp_path, capsys) -> None:
-        p = tmp_path / "x.png"
-        p.write_bytes(PNG_SIGNATURE + _png_chunk(b"IEND", b""))
+    def test_refuses_container_it_cannot_clean(self, tmp_path, capsys) -> None:
+        """A PDF has no metadata cleaner, so clean points at inspect instead.
+
+        PNG and JPEG *are* cleanable now and take the binary path; see
+        tests/test_container_clean.py.
+        """
+        p = tmp_path / "x.pdf"
+        p.write_bytes(b"%PDF-1.7\n<< /Title (t) >>\n%%EOF\n")
         assert main(["clean", str(p)]) == 2
         assert "operates on text" in capsys.readouterr().err
 

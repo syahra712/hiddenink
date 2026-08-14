@@ -19,6 +19,7 @@ from . import __version__
 from .core.clean_text import Profile, clean_text
 from .core.codepoints import Severity
 from .core.formats import detect_format, inspect_file
+from .core.formats.clean import CLEANABLE, clean_bytes
 from .core.inspect_text import inspect_text
 from .core.report import Report
 
@@ -29,8 +30,10 @@ _SEVERITY_ORDER = {
     Severity.INVISIBLE: 4,
 }
 
-#: Containers that are text underneath, so ``clean`` can rewrite them safely.
-#: Everything else is binary and is refused with a pointer to ``inspect``.
+#: Containers that are text underneath, so ``clean`` can run the text pipeline
+#: over them directly. Binary containers listed in ``CLEANABLE`` get their
+#: metadata rewritten instead; anything in neither set is refused with a
+#: pointer to ``inspect``.
 _CLEANABLE_CONTAINERS = {"svg"}
 
 _PROFILE_BY_SUFFIX = {
@@ -217,6 +220,30 @@ def cmd_clean(args: argparse.Namespace) -> int:
     for path in args.paths:
         if path != "-":
             container = detect_format(Path(path).read_bytes(), path)
+
+            if container in CLEANABLE:
+                # Binary container: rewrite bytes, never route through the text
+                # pipeline. Writing image bytes to stdout is a footgun (and the
+                # stream is a UTF-8 text stream), so this needs an explicit
+                # destination.
+                if to_stdout:
+                    print(
+                        f"marklens: {path} is a {container}; cleaning it rewrites "
+                        "binary data. Use --in-place, or --dry-run to see what "
+                        "would be removed.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                data = Path(path).read_bytes()
+                cleaned_bytes, report = clean_bytes(data, container)
+                report.source = path
+                reports.append(report)
+                if args.in_place and not (args.dry_run or args.check):
+                    if args.backup:
+                        Path(f"{path}.bak").write_bytes(data)
+                    Path(path).write_bytes(cleaned_bytes)
+                continue
+
             if container is not None and container not in _CLEANABLE_CONTAINERS:
                 print(
                     f"marklens: {path} is a {container} container; clean operates on "
