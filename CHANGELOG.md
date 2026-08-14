@@ -20,7 +20,7 @@ Notable changes per release. Dates are ISO-8601.
 - **Container metadata cleaning** for PNG and JPEG, under an explicit rule:
   remove metadata that identifies the user, keep metadata that discloses AI
   involvement. EXIF, text chunks, XMP, and comments go; C2PA manifests stay.
-- **Conformance corpus and audit harness** (`python -m marklens.audit`). States
+- **Conformance corpus and audit harness** (`python -m hiddenink.audit`). States
   an expected output and a rationale per input, in scored `CORRECTNESS` and
   unscored `POLICY` tiers. Any tool reading stdin and writing stdout can be
   measured. Results in [`RESULTS.md`](RESULTS.md).

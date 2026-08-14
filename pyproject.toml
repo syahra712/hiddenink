@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "marklens"
+name = "hiddenink"
 version = "0.1.0"
-description = "Inspect and clean AI provenance marks in text and files — honestly."
+description = "Find the ink you can't see. Inspects and cleans invisible Unicode, homoglyphs, and container metadata — and says precisely what it did not do."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -39,15 +39,15 @@ research = ["transformers>=4.46", "torch>=2.0", "numpy>=1.24", "scipy>=1.10"]
 dev = ["pytest>=7", "ruff>=0.5", "mypy>=1.8"]
 
 [project.scripts]
-marklens = "marklens.cli:main"
+hiddenink = "hiddenink.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/syahra712/marklens"
-Issues = "https://github.com/syahra712/marklens/issues"
+Homepage = "https://github.com/syahra712/hiddenink"
+Issues = "https://github.com/syahra712/hiddenink/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/marklens"]
-artifacts = ["src/marklens/py.typed"]
+packages = ["src/hiddenink"]
+artifacts = ["src/hiddenink/py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src"]
@@ -63,4 +63,4 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["src/marklens"]
+files = ["src/hiddenink"]

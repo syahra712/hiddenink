@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import pytest
 
-from marklens.core.clean_text import Profile, clean_text
-from marklens.core.codepoints import classify, is_load_bearing
-from marklens.core.inspect_text import inspect_text
+from hiddenink.core.clean_text import Profile, clean_text
+from hiddenink.core.codepoints import classify, is_load_bearing
+from hiddenink.core.inspect_text import inspect_text
 
 # Emoji and script samples, written as escapes so the intent survives editors
 # that normalise or strip the invisible characters.

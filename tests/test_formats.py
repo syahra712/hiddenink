@@ -13,9 +13,9 @@ from io import BytesIO
 
 import pytest
 
-from marklens.core.formats import detect_format, inspect_file, parse_bytes
-from marklens.core.formats.jpeg import parse_jpeg
-from marklens.core.formats.png import PNG_SIGNATURE, parse_png
+from hiddenink.core.formats import detect_format, inspect_file, parse_bytes
+from hiddenink.core.formats.jpeg import parse_jpeg
+from hiddenink.core.formats.png import PNG_SIGNATURE, parse_png
 
 # --- builders ----------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 """The report model, and the honesty contract it enforces.
 
-Every ``marklens`` result is split into two sections:
+Every ``hiddenink`` result is split into two sections:
 
 ``verifiable``
     Claims that are decidable from the bytes in front of us. An invisible

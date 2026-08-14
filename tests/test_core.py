@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from marklens.core.clean_text import Profile, clean_text, protected_regions
-from marklens.core.codepoints import Category, Severity, classify
-from marklens.core.inspect_text import inspect_text
+from hiddenink.core.clean_text import Profile, clean_text, protected_regions
+from hiddenink.core.codepoints import Category, Severity, classify
+from hiddenink.core.inspect_text import inspect_text
 
 ZWSP = "​"
 NBSP = " "

@@ -1,4 +1,4 @@
-"""``python -m marklens.audit`` entry point."""
+"""``python -m hiddenink.audit`` entry point."""
 
 from .runner import main
 

@@ -1,6 +1,8 @@
-# marklens
+# hiddenink
 
-**Inspect and clean AI provenance marks in text and files — and say precisely what was and wasn't done.**
+### Find the ink you can't see.
+
+**Inspects and cleans the invisible characters, homoglyphs, and metadata hidden in text and files — and says precisely what it could *not* do.**
 
 Apache-2.0 · Python ≥3.10 · **zero dependencies** in the core · works offline
 
@@ -16,7 +18,7 @@ The first half is real and useful. The second half **cannot be verified by anyon
 
 Others charge **$5.99–$39.99/month** for that same unverifiable claim, and store your drafts on their servers.
 
-`marklens` does the part that is real, does it better than anything else available, and refuses to bill you — in money or in false confidence — for the part that isn't.
+`hiddenink` does the part that is real, does it better than anything else available, and refuses to bill you — in money or in false confidence — for the part that isn't.
 
 ## The two layers
 
@@ -27,7 +29,7 @@ Claude marks output in two structurally different ways:
 | **Character & metadata** | Invisible codepoints; C2PA/EXIF/XMP in files | **Yes** | **Yes** — the bytes are there or they aren't |
 | **Statistical** | Token-logit biasing under a secret key, applied below the model | Unknown | **No** — no public detector exists |
 
-`marklens` owns the first row completely. For the second row it emits a `not_determinable` section and moves on.
+`hiddenink` owns the first row completely. For the second row it emits a `not_determinable` section and moves on.
 
 Every single report carries both:
 
@@ -50,7 +52,7 @@ NOT DETERMINABLE  (no tool can decide these)
 Not on PyPI yet. Until it is:
 
 ```bash
-pip install git+https://github.com/syahra712/marklens
+pip install git+https://github.com/syahra712/hiddenink
 ```
 
 The core has **no dependencies at all** — not a design accident, a requirement. A tool whose entire value is that its reports mean what they say has to be auditable end to end and installable in an air-gapped environment. `pip freeze` after installing it lists exactly one package, and CI asserts that on every commit.
@@ -58,19 +60,19 @@ The core has **no dependencies at all** — not a design accident, a requirement
 ## Use
 
 ```bash
-marklens inspect essay.md              # what am I actually carrying?
-marklens inspect diagram.png           # C2PA / EXIF / XMP in a container
-marklens clean notes.md                # write cleaned text to stdout
-marklens clean -i src/*.py             # rewrite in place
-marklens clean -i screenshot.png       # strip EXIF/text chunks, keep provenance
-marklens clean --check src/            # exit 1 if anything needs cleaning (CI)
-marklens inspect . --json | jq         # machine-readable, for CI
+hiddenink inspect essay.md              # what am I actually carrying?
+hiddenink inspect diagram.png           # C2PA / EXIF / XMP in a container
+hiddenink clean notes.md                # write cleaned text to stdout
+hiddenink clean -i src/*.py             # rewrite in place
+hiddenink clean -i screenshot.png       # strip EXIF/text chunks, keep provenance
+hiddenink clean --check src/            # exit 1 if anything needs cleaning (CI)
+hiddenink inspect . --json | jq         # machine-readable, for CI
 ```
 
 Gate a repo in pre-commit or CI:
 
 ```bash
-marklens inspect src/ --fail-on invisible
+hiddenink inspect src/ --fail-on invisible
 ```
 
 ## What makes it different
@@ -99,11 +101,11 @@ The same codepoint can be contraband or essential depending only on what surroun
 
 U+200C is the same story: in `क्‌ष` and `می‌رود` it is *spelling*. A cleaner that strips by codepoint identity silently corrupts every Urdu, Hindi, Persian, and Arabic document it touches. One that preserves by codepoint identity leaves every hidden joiner in place.
 
-`marklens` decides from context, so both are handled correctly in the same document — including emoji ZWJ sequences, subdivision flags (`🏴󠁧󠁢󠁳󠁣󠁴󠁿`, whose tag characters spell the region code), keycaps, Hangul fillers, Khmer inherent vowels, and Mongolian variation selectors.
+`hiddenink` decides from context, so both are handled correctly in the same document — including emoji ZWJ sequences, subdivision flags (`🏴󠁧󠁢󠁳󠁣󠁴󠁿`, whose tag characters spell the region code), keycaps, Hangul fillers, Khmer inherent vowels, and Mongolian variation selectors.
 
 **No `exiftool` dependency.** PNG chunks, JPEG APPn segments, OOXML/ODF zip parts, SVG nodes, and PDF Info dictionaries are parsed with the standard library. A tool that reports "no metadata found" because an optional binary is missing is worse than one that can't read the format at all.
 
-**Honest about C2PA soft binding.** When no manifest is found in a C2PA-capable file, `marklens` says so *and* warns that soft bindings ride in the pixels and survive metadata stripping. Stripping metadata does not make an image untraceable, and implying otherwise is the false confidence this whole product category sells.
+**Honest about C2PA soft binding.** When no manifest is found in a C2PA-capable file, `hiddenink` says so *and* warns that soft bindings ride in the pixels and survive metadata stripping. Stripping metadata does not make an image untraceable, and implying otherwise is the false confidence this whole product category sells.
 
 ## Non-goals
 
@@ -121,17 +123,17 @@ The short version: **erasing the mark makes your position worse, not better.** I
 
 ## Measured, not asserted
 
-This project's own charter forbids claiming superiority without evidence, so the comparison is a runnable conformance suite rather than a paragraph. [`src/marklens/audit/corpus.py`](src/marklens/audit/corpus.py) states an expected output **and a reason** for every input; any tool that reads stdin and writes stdout can be scored:
+This project's own charter forbids claiming superiority without evidence, so the comparison is a runnable conformance suite rather than a paragraph. [`src/hiddenink/audit/corpus.py`](src/hiddenink/audit/corpus.py) states an expected output **and a reason** for every input; any tool that reads stdin and writes stdout can be scored:
 
 ```bash
-python -m marklens.audit "other-tool=path/to/their-cleaner"
+python -m hiddenink.audit "other-tool=path/to/their-cleaner"
 ```
 
 Current results ([full table with per-case rationale](RESULTS.md)):
 
 | tool | correctness | content corrupted | contraband left in place |
 |---|---|---|---|
-| **marklens** | **40/40** | **0** | **0** |
+| **hiddenink** | **40/40** | **0** | **0** |
 | watermarks-remover | 35/40 | 3 | 2 |
 | watermarks-remover `--strip-emoji-glue` | 28/40 | 11 | 1 |
 | watermarks-remover `--aggressive-homoglyphs` | 33/40 | 3 | 2 |
@@ -148,7 +150,7 @@ No combination of those flags gets one document right. Its five default-mode fai
 
 ## Prior art, credited
 
-- [`guillaumemeyer/watermarks-remover`](https://github.com/guillaumemeyer/watermarks-remover) (MIT) — the incumbent, and unusually honest in its README about what its statistical layer can't do. Differential testing against it found three genuine corruption bugs in `marklens`, including the Indic/Arabic one above; the comparison above is only meaningful because their tool is good enough to learn from.
+- [`guillaumemeyer/watermarks-remover`](https://github.com/guillaumemeyer/watermarks-remover) (MIT) — the incumbent, and unusually honest in its README about what its statistical layer can't do. Differential testing against it found three genuine corruption bugs in `hiddenink`, including the Indic/Arabic one above; the comparison above is only meaningful because their tool is good enough to learn from.
 - [MarkLLM](https://github.com/THU-BPM/MarkLLM) (Apache-2.0) — the serious watermarking research toolkit. If you want real attack/robustness evaluation, use it, not a remover.
 - [`sanitext`](https://github.com/panispani/sanitext) (MIT), [`confusable-homoglyphs`](https://github.com/vhf/confusable_homoglyphs) (MIT) — Unicode hygiene prior art.
 - [c2pa-python](https://github.com/contentauth/c2pa-python) (Apache-2.0/MIT) — the real C2PA implementation, used by the optional `[c2pa]` extra.

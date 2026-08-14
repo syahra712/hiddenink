@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from marklens.core.clean_text import Profile, clean_text
-from marklens.core.codepoints import Category, Severity, classify
-from marklens.core.confusables import (
+from hiddenink.core.clean_text import Profile, clean_text
+from hiddenink.core.codepoints import Category, Severity, classify
+from hiddenink.core.confusables import (
     CROSS_SCRIPT_FOLD,
     fold_confusables,
     nfkc_fold,
@@ -21,7 +21,7 @@ from marklens.core.confusables import (
     scripts_in,
     suspicious_runs,
 )
-from marklens.core.inspect_text import inspect_text
+from hiddenink.core.inspect_text import inspect_text
 
 
 class TestScriptDetection:

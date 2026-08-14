@@ -15,18 +15,18 @@ import zlib
 
 import pytest
 
-from marklens.cli import main
-from marklens.core.clean_text import Profile, clean_text
-from marklens.core.codepoints import Severity, classify, is_load_bearing
-from marklens.core.formats import inspect_file
-from marklens.core.formats._safety import (
+from hiddenink.cli import main
+from hiddenink.core.clean_text import Profile, clean_text
+from hiddenink.core.codepoints import Severity, classify, is_load_bearing
+from hiddenink.core.formats import inspect_file
+from hiddenink.core.formats._safety import (
     MAX_DECOMPRESSED_BYTES,
     UnsafeDocument,
     bounded_decompress,
     safe_fromstring,
 )
-from marklens.core.formats.documents import parse_office, parse_svg
-from marklens.core.formats.png import PNG_SIGNATURE, parse_png
+from hiddenink.core.formats.documents import parse_office, parse_svg
+from hiddenink.core.formats.png import PNG_SIGNATURE, parse_png
 
 BILLION_LAUGHS = b"""<?xml version="1.0"?><!DOCTYPE s [
  <!ENTITY a "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">

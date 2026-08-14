@@ -1,11 +1,11 @@
 # Security policy
 
-`marklens` parses files it did not create — that is its entire purpose. Report
+`hiddenink` parses files it did not create — that is its entire purpose. Report
 anything that looks like a way to turn that against a user.
 
 ## Reporting
 
-Open a [private security advisory](https://github.com/syahra712/marklens/security/advisories/new).
+Open a [private security advisory](https://github.com/syahra712/hiddenink/security/advisories/new).
 Please do not open a public issue for an unfixed vulnerability.
 
 Expect an acknowledgement within 7 days. If a fix is warranted it will land with
@@ -13,7 +13,7 @@ a regression test and the advisory will credit you unless you ask otherwise.
 
 ## In scope
 
-The threat model is **a user runs `marklens` on a hostile file**. Anything that
+The threat model is **a user runs `hiddenink` on a hostile file**. Anything that
 escapes that boundary is in scope:
 
 - Denial of service through resource exhaustion — decompression bombs, quadratic
@@ -28,7 +28,7 @@ escapes that boundary is in scope:
 ## Already defended, with tests
 
 Reports of these are still welcome if you find a bypass. See
-[`_safety.py`](src/marklens/core/formats/_safety.py) and
+[`_safety.py`](src/hiddenink/core/formats/_safety.py) and
 [`test_hardening.py`](tests/test_hardening.py).
 
 | Class | Defence |
@@ -45,12 +45,12 @@ Reports of these are still welcome if you find a bypass. See
 
 - **Defeating a statistical text watermark.** Not a vulnerability; not a feature
   request either. See [Non-goals](README.md#non-goals).
-- **Preserved C2PA manifests.** `marklens` removes metadata that identifies the
+- **Preserved C2PA manifests.** `hiddenink` removes metadata that identifies the
   user and keeps metadata that discloses AI involvement. That is deliberate,
   documented, and enforced by tests. If you need provenance stripped, this is
   the wrong tool.
 - Findings that require the attacker to already control the machine running
-  `marklens`.
+  `hiddenink`.
 - Vulnerabilities in optional extras (`[c2pa]`, `[research]`) that live in the
   upstream dependency — report those upstream, though a note here is welcome so
   the pin can be raised.

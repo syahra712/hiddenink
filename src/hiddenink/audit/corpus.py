@@ -230,7 +230,7 @@ CORPUS: tuple[Case, ...] = (
        "as above",
        "typography"),
     _p("homograph in prose", "visit pаypal.com", "visit pаypal.com",
-       "marklens reports this and leaves it alone in prose, because the "
+       "hiddenink reports this and leaves it alone in prose, because the "
        "reader needs to see the impersonation; under the code profile it folds",
        "confusables"),
     _p("fullwidth text", "ｈｅｌｌｏ", "hello",

@@ -19,7 +19,7 @@ from typing import Any
 from ..core.clean_text import Profile, clean_text
 from .corpus import CORPUS, Case, Tier
 
-__all__ = ["Outcome", "ToolResult", "run_tool", "marklens_adapter", "external_adapter"]
+__all__ = ["Outcome", "ToolResult", "run_tool", "hiddenink_adapter", "external_adapter"]
 
 #: Trailing-newline differences are a stdout convention, not a cleaning
 #: decision, so they are normalised away before comparing. Everything else is
@@ -100,7 +100,7 @@ class ToolResult:
 Adapter = Callable[[str], str]
 
 
-def marklens_adapter(profile: Profile = Profile.PROSE) -> Adapter:
+def hiddenink_adapter(profile: Profile = Profile.PROSE) -> Adapter:
     """Run this package in-process, with no subprocess overhead."""
 
     def clean(text: str) -> str:
@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - thin wrapp
     from .report import render
 
     args = list(sys.argv[1:] if argv is None else argv)
-    tools: list[tuple[str, Adapter]] = [("marklens", marklens_adapter())]
+    tools: list[tuple[str, Adapter]] = [("hiddenink", hiddenink_adapter())]
     for spec in args:
         if "=" not in spec:
             print(f"audit: expected NAME=COMMAND, got {spec!r}", file=sys.stderr)

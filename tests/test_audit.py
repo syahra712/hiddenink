@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import pytest
 
-from marklens.audit import (
+from hiddenink.audit import (
     CORPUS,
     Tier,
     correctness_cases,
-    marklens_adapter,
+    hiddenink_adapter,
     policy_cases,
     render,
     run_tool,
 )
-from marklens.audit.report import _is_invisible_for_display
-from marklens.core.clean_text import Profile
+from hiddenink.audit.report import _is_invisible_for_display
+from hiddenink.core.clean_text import Profile
 
 
 class TestCorpusIntegrity:
@@ -60,8 +60,8 @@ class TestCorpusIntegrity:
 
 
 class TestScoring:
-    def test_marklens_passes_every_correctness_case(self) -> None:
-        result = run_tool("marklens", marklens_adapter(), correctness_cases())
+    def test_hiddenink_passes_every_correctness_case(self) -> None:
+        result = run_tool("hiddenink", hiddenink_adapter(), correctness_cases())
         passed, total = result.correctness
         failures = [o.case.name for o in result.outcomes if not o.passed]
         assert passed == total, f"regressed on: {failures}"
@@ -100,31 +100,31 @@ class TestScoring:
 
     @pytest.mark.parametrize("profile", list(Profile))
     def test_no_profile_corrupts_load_bearing_content(self, profile: Profile) -> None:
-        result = run_tool(profile.value, marklens_adapter(profile), correctness_cases())
+        result = run_tool(profile.value, hiddenink_adapter(profile), correctness_cases())
         assert not result.corruptions, [o.case.name for o in result.corruptions]
 
 
 class TestRender:
     def test_output_is_markdown_with_a_summary(self) -> None:
-        results = [run_tool("marklens", marklens_adapter())]
+        results = [run_tool("hiddenink", hiddenink_adapter())]
         text = render(results)
         assert text.startswith("# Conformance results")
         assert "| tool | correctness |" in text
-        assert "marklens" in text
+        assert "hiddenink" in text
 
     def test_invisible_characters_are_escaped_not_printed(self) -> None:
-        text = render([run_tool("marklens", marklens_adapter())])
+        text = render([run_tool("hiddenink", hiddenink_adapter())])
         for codepoint in ("​", "‮", "", "\U000e0041"):
             assert codepoint not in text, f"{codepoint!r} leaked into the report raw"
 
     def test_report_is_deterministic(self) -> None:
         """It is committed to RESULTS.md, so it has to diff cleanly."""
-        first = render([run_tool("marklens", marklens_adapter())])
-        second = render([run_tool("marklens", marklens_adapter())])
+        first = render([run_tool("hiddenink", hiddenink_adapter())])
+        second = render([run_tool("hiddenink", hiddenink_adapter())])
         assert first == second
 
     def test_policy_cases_are_shown_but_not_scored(self) -> None:
-        results = [run_tool("marklens", marklens_adapter())]
+        results = [run_tool("hiddenink", hiddenink_adapter())]
         text = render(results)
         assert "not scored" in text
         passed, total = results[0].correctness

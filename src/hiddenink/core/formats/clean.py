@@ -44,7 +44,7 @@ __all__ = [
 CLEANABLE = ("png", "jpeg")
 
 PROVENANCE_PRESERVED_NOTICE = (
-    "C2PA provenance manifest: PRESERVED, deliberately. marklens removes "
+    "C2PA provenance manifest: PRESERVED, deliberately. hiddenink removes "
     "metadata that identifies you and keeps metadata that discloses AI "
     "involvement. Removing the manifest would not make the file unmarked in any "
     "case: C2PA soft bindings are carried in the pixels."

@@ -1,4 +1,4 @@
-"""marklens -- inspect and clean AI provenance marks in text and files.
+"""hiddenink -- inspect and clean AI provenance marks in text and files.
 
 Removes what is provably removable (invisible codepoints, container metadata)
 and says so precisely. Does not claim to remove, defeat, or detect model-level

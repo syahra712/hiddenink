@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import pytest
 
-from marklens.cli import main
-from marklens.core.formats.clean import (
+from hiddenink.cli import main
+from hiddenink.core.formats.clean import (
     CLEANABLE,
     clean_bytes,
     clean_jpeg,
     clean_png,
 )
-from marklens.core.formats.jpeg import parse_jpeg
-from marklens.core.formats.png import parse_png
+from hiddenink.core.formats.jpeg import parse_jpeg
+from hiddenink.core.formats.png import parse_png
 from test_formats import build_jpeg, build_png
 
 

@@ -14,7 +14,7 @@ The instinct is to run a watermark remover and resubmit. **This makes your posit
 2. **Removal has its own signature.** Independent review of the current tools notes that a forensic classifier recognises the removal's fingerprint with near-perfect accuracy. You trade an explicit mark for an implicit one, and the implicit one is harder to explain.
 3. **It probably didn't work anyway.** No public detector exists, so no tool can demonstrate the statistical mark was removed. You would be taking a real risk in exchange for an unverifiable benefit.
 
-Use `marklens inspect` to *understand* what's in your document. Do not clean it until the matter is resolved.
+Use `hiddenink inspect` to *understand* what's in your document. Do not clean it until the matter is resolved.
 
 ---
 
@@ -88,7 +88,7 @@ A detected mark cannot tell you whether Claude wrote 100% of the text or fixed f
 Then:
 
 - **Preserve the original document unmodified.** Take a hash of it (`shasum -a 256 essay.docx`) and record it somewhere dated.
-- **Run `marklens inspect essay.docx`** to see what's verifiably present. Bring the report.
+- **Run `hiddenink inspect essay.docx`** to see what's verifiably present. Bring the report.
 - **Ask what tool was used, at what threshold, with what published false-positive rate, on a passage of what length.** Ask whether that rate was validated on writers with your language background. These questions are frequently unanswerable, and that is itself informative.
 - **State plainly what you actually used Claude for**, if anything. "I wrote this and used Claude to check grammar" is a complete, honest, and — per Anthropic's own documentation — fully consistent explanation of a detected mark.
 

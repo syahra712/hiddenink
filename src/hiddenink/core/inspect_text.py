@@ -85,7 +85,7 @@ def iter_findings(
     ZWJ gluing a family emoji together, a ZWNJ spelling a Devanagari word, the
     tag characters inside a subdivision flag -- all of these are content, and
     reporting them as contraband would invite the user to corrupt their own
-    document. See :func:`~marklens.core.codepoints.is_load_bearing`.
+    document. See :func:`~hiddenink.core.codepoints.is_load_bearing`.
     """
     starts: list[int] | None = None
 

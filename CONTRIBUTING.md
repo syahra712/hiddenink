@@ -6,7 +6,7 @@ deliberately, never silently.
 
 ## The most useful contribution
 
-**Challenge a conformance case.** [`corpus.py`](src/marklens/audit/corpus.py)
+**Challenge a conformance case.** [`corpus.py`](src/hiddenink/audit/corpus.py)
 states an expected output and a Unicode-semantics rationale for every input, and
 it is scored against tools including this one. I wrote both the corpus and one of
 the tools in it, which is a real conflict of interest.
@@ -24,7 +24,7 @@ Adding a case means committing to a claim about correctness. Cite the reason.
 ## Setup
 
 ```bash
-git clone https://github.com/syahra712/marklens && cd marklens
+git clone https://github.com/syahra712/hiddenink && cd hiddenink
 pip install -e ".[dev]"
 pytest -q
 ```
@@ -32,7 +32,7 @@ pytest -q
 The core has **no dependencies**, and that is load-bearing rather than
 aesthetic: the product is trustworthy reports, so a user has to be able to read
 the whole trust-relevant codebase in an afternoon and run it air-gapped. New
-dependencies go in an extra (`[c2pa]`, `[research]`), never in `marklens.core`.
+dependencies go in an extra (`[c2pa]`, `[research]`), never in `hiddenink.core`.
 A test enforces this.
 
 ## Before opening a pull request
@@ -41,7 +41,7 @@ A test enforces this.
 ruff check src tests
 mypy
 pytest -q
-python -m marklens.audit          # conformance must stay at full marks
+python -m hiddenink.audit          # conformance must stay at full marks
 ```
 
 Then, from the charter's checklist:

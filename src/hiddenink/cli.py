@@ -209,7 +209,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
     if to_stdout and len(args.paths) > 1:
         print(
-            f"marklens: refusing to concatenate {len(args.paths)} files to stdout "
+            f"hiddenink: refusing to concatenate {len(args.paths)} files to stdout "
             "(the result could not be split back apart). Use --in-place, or pass "
             "one file at a time.",
             file=sys.stderr,
@@ -228,7 +228,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
                 # destination.
                 if to_stdout:
                     print(
-                        f"marklens: {path} is a {container}; cleaning it rewrites "
+                        f"hiddenink: {path} is a {container}; cleaning it rewrites "
                         "binary data. Use --in-place, or --dry-run to see what "
                         "would be removed.",
                         file=sys.stderr,
@@ -246,8 +246,8 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
             if container is not None and container not in _CLEANABLE_CONTAINERS:
                 print(
-                    f"marklens: {path} is a {container} container; clean operates on "
-                    f"text. Use 'marklens inspect {path}' to read its metadata.",
+                    f"hiddenink: {path} is a {container} container; clean operates on "
+                    f"text. Use 'hiddenink inspect {path}' to read its metadata.",
                     file=sys.stderr,
                 )
                 return 2
@@ -281,17 +281,17 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="marklens",
+        prog="hiddenink",
         description=(
             "Inspect and clean AI provenance marks. Removes what is provably "
             "removable; never claims to remove what cannot be verified."
         ),
         epilog=(
-            "marklens does not remove, defeat, or detect model-level statistical "
+            "hiddenink does not remove, defeat, or detect model-level statistical "
             "watermarking. No public tool can: no detector has been published."
         ),
     )
-    parser.add_argument("--version", action="version", version=f"marklens {__version__}")
+    parser.add_argument("--version", action="version", version=f"hiddenink {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
@@ -372,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return int(args.func(args))
     except (OSError, UnicodeDecodeError) as exc:
-        print(f"marklens: {exc}", file=sys.stderr)
+        print(f"hiddenink: {exc}", file=sys.stderr)
         return 2
 
 

@@ -51,8 +51,8 @@ jobs:
         run: pytest -q
       - name: Smoke-test the CLI
         run: |
-          marklens --version
-          marklens inspect README.md --quiet
+          hiddenink --version
+          hiddenink inspect README.md --quiet
 
   # The zero-dependency guarantee is load-bearing -- it is the reason the trust
   # story is auditable end to end -- so it gets verified in an environment with
@@ -77,7 +77,7 @@ jobs:
               capture_output=True, text=True, check=True,
           ).stdout
 
-          # A local install freezes as "marklens @ file:///path", so splitting on
+          # A local install freezes as "hiddenink @ file:///path", so splitting on
           # whitespace yields three tokens and treats "@" as a dependency. Parse
           # the distribution name off the front of each *line* instead.
           names = []
@@ -87,16 +87,16 @@ jobs:
                   continue
               names.append(re.split(r"[\s@=<>!~\[]", line, maxsplit=1)[0].lower())
 
-          extra = [n for n in names if n != "marklens"]
+          extra = [n for n in names if n != "hiddenink"]
           assert not extra, f"core install pulled in dependencies: {extra}"
           print(f"OK: zero dependencies (pip freeze -> {names})")
           PY
       - name: CLI works on a clean install
-        run: marklens inspect README.md --quiet
+        run: hiddenink inspect README.md --quiet
 
   # The conformance corpus is the project's evidence that it is more correct
   # than the alternatives, so a regression in it is a regression in the claim.
-  # Scored here against marklens itself; the destructive- and inert-tool
+  # Scored here against hiddenink itself; the destructive- and inert-tool
   # guardrails in tests/test_audit.py stop it decaying into a pass-everything
   # harness.
   conformance:
@@ -108,12 +108,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install .
-      - name: Score marklens against the corpus
+      - name: Score hiddenink against the corpus
         run: |
           python - <<'PY'
-          from marklens.audit import correctness_cases, marklens_adapter, run_tool
+          from hiddenink.audit import correctness_cases, hiddenink_adapter, run_tool
 
-          result = run_tool("marklens", marklens_adapter(), correctness_cases())
+          result = run_tool("hiddenink", hiddenink_adapter(), correctness_cases())
           passed, total = result.correctness
           for outcome in result.outcomes:
               if not outcome.passed:
@@ -125,16 +125,16 @@ jobs:
           PY
       - name: RESULTS.md is regenerated and committed
         run: |
-          python -m marklens.audit > /tmp/fresh.md
+          python -m hiddenink.audit > /tmp/fresh.md
           python - <<'PY'
-          # Only the marklens rows are reproducible here; the competitor rows
+          # Only the hiddenink rows are reproducible here; the competitor rows
           # need their tool checked out, so compare the sections we own.
           fresh = open("/tmp/fresh.md").read()
           committed = open("RESULTS.md").read()
           for line in fresh.splitlines():
-              if line.startswith("| marklens |"):
+              if line.startswith("| hiddenink |"):
                   assert line in committed, (
                       f"RESULTS.md is stale -- regenerate it.\n  expected row: {line}"
                   )
-          print("RESULTS.md marklens row is current")
+          print("RESULTS.md hiddenink row is current")
           PY

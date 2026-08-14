@@ -1,6 +1,6 @@
 # Development charter
 
-The design contract for `marklens`. Read this before writing code or accepting a contribution. If a change conflicts with a rule here, the rule wins or the rule gets amended in the same pull request — not silently overridden.
+The design contract for `hiddenink`. Read this before writing code or accepting a contribution. If a change conflicts with a rule here, the rule wins or the rule gets amended in the same pull request — not silently overridden.
 
 ---
 
@@ -51,7 +51,7 @@ If a contributor wants to do watermark-robustness research, point them at [MarkL
 
 ### 4. The core stays dependency-free
 
-`marklens.core` imports nothing outside the standard library, enforced by a test. Optional extras (`[c2pa]`, `[research]`) may add dependencies; the core may not.
+`hiddenink.core` imports nothing outside the standard library, enforced by a test. Optional extras (`[c2pa]`, `[research]`) may add dependencies; the core may not.
 
 Rationale: the product is trustworthy reports. A user must be able to read the entire trust-relevant codebase in an afternoon and run it air-gapped. Every dependency is a thing they'd have to audit too.
 

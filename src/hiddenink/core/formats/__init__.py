@@ -107,7 +107,7 @@ def inspect_file(path: str | Path) -> Report:
                     "NOT establish the absence of provenance: C2PA soft bindings "
                     "are carried in the pixels themselves and can re-link a remote "
                     "manifest after all metadata is stripped. Reading them requires "
-                    "the C2PA soft-binding algorithms, which marklens does not "
+                    "the C2PA soft-binding algorithms, which hiddenink does not "
                     "implement."
                 ),
             )

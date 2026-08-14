@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from marklens.core.clean_text import Profile, clean_text
-from marklens.core.inspect_text import inspect_text
-from marklens.core.report import Report
+from hiddenink.core.clean_text import Profile, clean_text
+from hiddenink.core.inspect_text import inspect_text
+from hiddenink.core.report import Report
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 
@@ -79,10 +79,10 @@ class TestRule4CoreHasNoThirdPartyImports:
         code = (
             "import sys\n"
             "baseline = set(sys.modules)\n"
-            "import marklens.cli, marklens.core, marklens.core.formats\n"
+            "import hiddenink.cli, hiddenink.core, hiddenink.core.formats\n"
             "new = set(sys.modules) - baseline\n"
             "third = {m.split('.')[0] for m in new} "
-            "- set(sys.stdlib_module_names) - {'marklens'}\n"
+            "- set(sys.stdlib_module_names) - {'hiddenink'}\n"
             "print(','.join(sorted(third)))\n"
         )
         result = subprocess.run(
@@ -121,7 +121,7 @@ class TestRule5ContentAwareRemoval:
         assert clean_text("a﻿b", Profile.PROSE)[0] == "ab"
 
     def test_malformed_container_does_not_raise(self) -> None:
-        from marklens.core.formats import parse_bytes
+        from hiddenink.core.formats import parse_bytes
 
         junk_inputs = (
             b"\x89PNG\r\n\x1a\n" + b"\xff" * 9,
@@ -136,7 +136,7 @@ class TestRule6AbsenceIsNotAbsence:
     def test_c2pa_capable_file_without_manifest_warns_about_soft_binding(
         self, tmp_path
     ) -> None:
-        from marklens.core.formats import inspect_file
+        from hiddenink.core.formats import inspect_file
         from test_formats import build_png
 
         p = tmp_path / "x.png"
