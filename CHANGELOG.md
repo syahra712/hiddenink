@@ -2,6 +2,24 @@
 
 Notable changes per release. Dates are ISO-8601.
 
+## [0.1.1] — 2026-08-14
+
+### Fixed
+
+- The 0.1.0 project page on PyPI rendered a README saying the package was "not
+  on PyPI yet". PyPI builds a project page from the README inside the uploaded
+  artifact, and the README was corrected *after* the wheel was built, so the
+  stale text shipped. A version cannot be re-uploaded, hence this patch.
+- `README.md` table header no longer has an empty leading cell, which read
+  confusingly once rendered.
+
+### Added
+
+- `tests/test_release.py`: asserts the README inside `dist/*.whl` matches
+  `README.md`, that no pre-publication language survives, that Markdown tables
+  are not ragged, and that the version agrees across `pyproject.toml`,
+  `__init__.py`, and the changelog. This class of mistake cannot recur silently.
+
 ## [0.1.0] — 2026-08-14
 
 First release. https://pypi.org/project/hiddenink/0.1.0/

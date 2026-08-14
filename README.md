@@ -28,7 +28,7 @@ Others charge **$5.99–$39.99/month** for that same unverifiable claim, and sto
 
 Claude marks output in two structurally different ways:
 
-| | What it is | Can it be removed? | Can removal be **verified**? |
+| layer | What it is | Can it be removed? | Can removal be **verified**? |
 |---|---|---|---|
 | **Character & metadata** | Invisible codepoints; C2PA/EXIF/XMP in files | **Yes** | **Yes** — the bytes are there or they aren't |
 | **Statistical** | Token-logit biasing under a secret key, applied below the model | Unknown | **No** — no public detector exists |
@@ -95,7 +95,7 @@ A curly quote inside a Markdown code fence is a bug even in a prose document. A 
 
 The same codepoint can be contraband or essential depending only on what surrounds it:
 
-| | U+200D between… | verdict |
+| example | U+200D sits between… | verdict |
 |---|---|---|
 | `he‍llo` | two Latin letters | **hidden mark** — Latin has no joining behaviour |
 | `👨‍👩‍👧` | two emoji | **content** — it is what makes the family one glyph |

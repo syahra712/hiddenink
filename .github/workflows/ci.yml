@@ -54,6 +54,24 @@ jobs:
           hiddenink --version
           hiddenink inspect README.md --quiet
 
+  # PyPI renders a project page from the README inside the uploaded artifact,
+  # and a version can never be re-uploaded. 0.1.0 shipped a README saying the
+  # package was "not on PyPI yet" because it was corrected after the build, so
+  # the artifact is now checked against the working tree on every commit.
+  release-integrity:
+    name: release integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" build "twine>=6.1" "packaging>=25"
+      - name: Build
+        run: python -m build
+      - name: Artifact must match the repository
+        run: pytest tests/test_release.py -q
+
   # The zero-dependency guarantee is load-bearing -- it is the reason the trust
   # story is auditable end to end -- so it gets verified in an environment with
   # nothing else installed, not just asserted in the README.
