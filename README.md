@@ -4,6 +4,10 @@
 
 **Inspects and cleans the invisible characters, homoglyphs, and metadata hidden in text and files — and says precisely what it could *not* do.**
 
+[![PyPI](https://img.shields.io/pypi/v/hiddenink)](https://pypi.org/project/hiddenink/)
+[![Python](https://img.shields.io/pypi/pyversions/hiddenink)](https://pypi.org/project/hiddenink/)
+[![License](https://img.shields.io/pypi/l/hiddenink)](LICENSE)
+
 Apache-2.0 · Python ≥3.10 · **zero dependencies** in the core · works offline
 
 ---
@@ -49,10 +53,8 @@ NOT DETERMINABLE  (no tool can decide these)
 
 ## Install
 
-Not on PyPI yet. Until it is:
-
 ```bash
-pip install git+https://github.com/syahra712/hiddenink
+pip install hiddenink
 ```
 
 The core has **no dependencies at all** — not a design accident, a requirement. A tool whose entire value is that its reports mean what they say has to be auditable end to end and installable in an air-gapped environment. `pip freeze` after installing it lists exactly one package, and CI asserts that on every commit.

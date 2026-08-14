@@ -2,7 +2,9 @@
 
 Notable changes per release. Dates are ISO-8601.
 
-## [Unreleased]
+## [0.1.0] — 2026-08-14
+
+First release. https://pypi.org/project/hiddenink/0.1.0/
 
 ### Added
 
