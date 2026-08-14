@@ -75,6 +75,24 @@ class TestRule2SectionsStaySeparate:
         assert Report(source="s", undeterminable=[]).undeterminable
 
 
+class TestTransformationCounts:
+    def test_removal_folding_and_normalisation_are_separate(self) -> None:
+        cleaned, report = clean_text("﻿a—b\r\nc\u200bd", Profile.DATA)
+        assert cleaned == "a-b\ncd"
+        assert report.removed == 1
+        assert report.folded == 1
+        assert report.normalized == 2
+        assert report.transformed == 4
+
+    def test_data_only_normalisation_is_not_reported_as_zero_changes(self) -> None:
+        cleaned, report = clean_text("﻿a\r\n", Profile.DATA)
+        assert cleaned == "a\n"
+        assert report.changed
+        assert report.removed == 0
+        assert report.folded == 0
+        assert report.normalized == 2
+
+
 class TestRule4CoreHasNoThirdPartyImports:
     def test_no_third_party_imports(self) -> None:
         """The core and CLI must import nothing outside the standard library."""
@@ -144,7 +162,7 @@ class TestRule6AbsenceIsNotAbsence:
         p = tmp_path / "x.png"
         p.write_bytes(build_png())
         reasons = " ".join(u.reason for u in inspect_file(p).undeterminable).lower()
-        assert "soft binding" in reasons
+        assert "soft binding" in reasons.replace("-", " ")
         assert "does not establish the absence" in reasons
 
 

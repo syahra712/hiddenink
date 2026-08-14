@@ -28,12 +28,23 @@ class TestScriptDetection:
     @pytest.mark.parametrize(
         ("char", "script"),
         [
-            ("a", "Latin"), ("Z", "Latin"), ("é", "Latin"),
-            ("а", "Cyrillic"), ("Ж", "Cyrillic"),
-            ("ο", "Greek"), ("Ω", "Greek"),
-            ("Ꭺ", "Cherokee"), ("א", "Hebrew"), ("ا", "Arabic"),
-            ("中", "Han"), ("ひ", "Hiragana"), ("カ", "Katakana"), ("한", "Hangul"),
-            ("1", "Common"), (" ", "Common"), ("-", "Common"),
+            ("a", "Latin"),
+            ("Z", "Latin"),
+            ("é", "Latin"),
+            ("а", "Cyrillic"),
+            ("Ж", "Cyrillic"),
+            ("ο", "Greek"),
+            ("Ω", "Greek"),
+            ("Ꭺ", "Cherokee"),
+            ("א", "Hebrew"),
+            ("ا", "Arabic"),
+            ("中", "Han"),
+            ("ひ", "Hiragana"),
+            ("カ", "Katakana"),
+            ("한", "Hangul"),
+            ("1", "Common"),
+            (" ", "Common"),
+            ("-", "Common"),
         ],
     )
     def test_script_of(self, char: str, script: str) -> None:
@@ -76,7 +87,8 @@ class TestMixedScriptDetection:
         runs = suspicious_runs("go to pаypal now")
         assert len(runs) == 1
         assert runs[0].text == "pаypal"
-        assert runs[0].offset == 6
+        assert runs[0].offset == 7
+        assert (runs[0].span_start, runs[0].span_end) == (6, 12)
         assert runs[0].scripts == frozenset({"Latin", "Cyrillic"})
 
 
@@ -129,8 +141,10 @@ class TestScopedCrossScriptFolding:
 
 
 class TestProfileBehaviour:
-    def test_code_profile_folds_homographs(self) -> None:
-        assert clean_text("if pаypal_ok:", Profile.CODE)[0] == "if paypal_ok:"
+    def test_code_profile_reports_but_does_not_rewrite_homographs(self) -> None:
+        text = "if pаypal_ok:"
+        assert clean_text(text, Profile.CODE)[0] == text
+        assert suspicious_runs(text)
 
     def test_prose_profile_reports_but_does_not_fold(self) -> None:
         text = "visit pаypal"
@@ -143,9 +157,10 @@ class TestProfileBehaviour:
         text = "https://pаypal.com"
         assert clean_text(text, Profile.CODE)[0] == text
 
-    def test_code_fences_fold_under_prose(self) -> None:
-        cleaned, _ = clean_text("```\nx = pаypal\n```", Profile.PROSE)
-        assert "x = paypal" in cleaned
+    def test_code_fences_do_not_rewrite_homographs(self) -> None:
+        text = "```\nx = pаypal\n```"
+        cleaned, _ = clean_text(text, Profile.PROSE)
+        assert cleaned == text
 
     @pytest.mark.parametrize("profile", list(Profile))
     def test_russian_survives_every_profile(self, profile: Profile) -> None:
@@ -163,7 +178,8 @@ class TestReporting:
         assert len(mixed) == 1
         assert mixed[0].severity is Severity.CONFUSABLE
         assert "Cyrillic" in mixed[0].name
-        assert (mixed[0].line, mixed[0].column) == (1, 7)
+        assert mixed[0].codepoint == ord("а")
+        assert (mixed[0].line, mixed[0].column) == (1, 8)
 
     def test_compatibility_variants_are_classified(self) -> None:
         info = classify(ord("ｈ"))

@@ -69,8 +69,17 @@ jobs:
       - run: pip install -e ".[dev]" build "twine>=6.1" "packaging>=25"
       - name: Build
         run: python -m build
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
       - name: Artifact must match the repository
         run: pytest tests/test_release.py -q
+      - name: Test the installed wheel outside the source tree
+        run: |
+          python -m venv /tmp/hiddenink-wheel
+          /tmp/hiddenink-wheel/bin/pip install dist/*.whl pytest
+          cd /tmp
+          /tmp/hiddenink-wheel/bin/python -m pytest "$GITHUB_WORKSPACE/tests" -q
+          /tmp/hiddenink-wheel/bin/hiddenink --version
 
   # The zero-dependency guarantee is load-bearing -- it is the reason the trust
   # story is auditable end to end -- so it gets verified in an environment with
@@ -112,11 +121,9 @@ jobs:
       - name: CLI works on a clean install
         run: hiddenink inspect README.md --quiet
 
-  # The conformance corpus is the project's evidence that it is more correct
-  # than the alternatives, so a regression in it is a regression in the claim.
-  # Scored here against hiddenink itself; the destructive- and inert-tool
-  # guardrails in tests/test_audit.py stop it decaying into a pass-everything
-  # harness.
+  # The conformance corpus is project-authored regression evidence, not an
+  # independent comparison. The destructive- and inert-tool guardrails in
+  # tests/test_audit.py stop it decaying into a pass-everything harness.
   conformance:
     name: conformance corpus
     runs-on: ubuntu-latest
@@ -145,14 +152,17 @@ jobs:
         run: |
           python -m hiddenink.audit > /tmp/fresh.md
           python - <<'PY'
-          # Only the hiddenink rows are reproducible here; the competitor rows
-          # need their tool checked out, so compare the sections we own.
+          # Runtime metadata differs by runner, so compare only the self-run
+          # summary result rather than treating environment drift as staleness.
           fresh = open("/tmp/fresh.md").read()
           committed = open("RESULTS.md").read()
-          for line in fresh.splitlines():
-              if line.startswith("| hiddenink |"):
-                  assert line in committed, (
-                      f"RESULTS.md is stale -- regenerate it.\n  expected row: {line}"
-                  )
+          summary = fresh.split("## Summary", 1)[1].split("##", 1)[0]
+          row = next(
+              line for line in summary.splitlines()
+              if line.startswith("| hiddenink |")
+          )
+          assert row in committed, (
+              f"RESULTS.md is stale -- regenerate it.\n  expected row: {row}"
+          )
           print("RESULTS.md hiddenink row is current")
           PY

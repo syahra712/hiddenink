@@ -26,18 +26,19 @@ from test_formats import build_jpeg, build_png
 
 
 class TestPngCleaning:
-    def test_text_chunks_are_removed(self) -> None:
+    def test_ambiguous_text_chunks_are_retained(self) -> None:
         data = build_png(text={"Software": "Gen 1.0", "Author": "someone"})
         cleaned, removed, _ = clean_png(data)
-        assert parse_png(cleaned) == {}
-        assert len(removed) == 2
+        assert cleaned == data
+        assert removed == []
+        assert parse_png(cleaned)["png.tEXt.Author"] == "someone"
 
-    def test_c2pa_manifest_is_preserved(self) -> None:
+    def test_c2pa_bytes_are_retained_without_validity_claim(self) -> None:
         data = build_png(text={"Software": "Gen 1.0"}, c2pa=True)
         cleaned, _, provenance_kept = clean_png(data)
         assert provenance_kept
-        assert "png.c2pa_manifest" in parse_png(cleaned)
-        assert not any(k.startswith("png.tEXt") for k in parse_png(cleaned))
+        assert cleaned == data
+        assert parse_png(cleaned)["png.c2pa_manifest_store_structurally_parsed"] is True
 
     def test_image_data_survives(self) -> None:
         data = build_png(text={"Software": "x"})
@@ -50,31 +51,34 @@ class TestPngCleaning:
         data = build_png()
         assert clean_png(data)[0] == data
 
-    def test_bytes_after_iend_are_preserved(self) -> None:
-        """Some encoders append data; discarding it is not ours to do."""
+    def test_bytes_after_iend_make_mutation_refuse(self) -> None:
         data = build_png(text={"Software": "x"}) + b"TRAILER"
-        cleaned, _, _ = clean_png(data)
-        assert cleaned.endswith(b"TRAILER")
+        cleaned, report = clean_bytes(data, "png")
+        assert cleaned == data
+        assert report.parse_status == "refused"
+        assert any("IEND" in reason for reason in report.refusal_reasons)
 
 
 class TestJpegCleaning:
-    def test_exif_and_xmp_are_removed(self) -> None:
+    def test_exif_and_xmp_are_retained(self) -> None:
         data = build_jpeg(exif=True, xmp="<x:xmpmeta>gps</x:xmpmeta>")
         cleaned, removed, _ = clean_jpeg(data)
         found = parse_jpeg(cleaned)
-        assert "jpeg.exif" not in found
-        assert "jpeg.xmp" not in found
-        assert removed
+        assert cleaned == data
+        assert "jpeg.exif" in found
+        assert "jpeg.xmp" in found
+        assert removed == []
 
-    def test_comment_is_removed(self) -> None:
+    def test_comment_is_retained_as_potential_rights_data(self) -> None:
         cleaned, _, _ = clean_jpeg(build_jpeg())
-        assert "jpeg.comment" not in parse_jpeg(cleaned)
+        assert parse_jpeg(cleaned)["jpeg.comment"] == "a comment"
 
-    def test_app11_jumbf_is_preserved(self) -> None:
+    def test_app11_jumbf_bytes_are_retained(self) -> None:
         data = build_jpeg(exif=True, c2pa=True)
         cleaned, _, provenance_kept = clean_jpeg(data)
         assert provenance_kept
-        assert "jpeg.c2pa_manifest" in parse_jpeg(cleaned)
+        assert cleaned == data
+        assert parse_jpeg(cleaned)["jpeg.c2pa_manifest_store_structurally_parsed"]
 
     def test_scan_data_survives(self) -> None:
         data = build_jpeg(exif=True)
@@ -89,10 +93,13 @@ class TestRefusesToCorrupt:
         [
             ("truncated png", build_png(text={"a": "b"})[:40], "png"),
             ("png without IEND", build_png()[:-12], "png"),
+            ("png without IDAT", build_png().replace(build_png()[33:-12], b""), "png"),
+            ("png bytes after IEND", build_png() + b"trailer", "png"),
             ("not a png", b"hello world", "png"),
             ("empty png", b"", "png"),
             ("garbage jpeg", b"\xff\xd8\xff\xe1\xff\xff", "jpeg"),
             ("jpeg without SOS", build_jpeg(exif=True)[:20], "jpeg"),
+            ("jpeg without EOI", build_jpeg(exif=True)[:-2], "jpeg"),
             ("not a jpeg", b"hello world", "jpeg"),
         ],
     )
@@ -102,9 +109,25 @@ class TestRefusesToCorrupt:
         cleaned, _ = clean_bytes(data, fmt)
         assert cleaned == data, f"{label} was modified"
 
+    @pytest.mark.parametrize(
+        ("data", "fmt"),
+        [
+            (build_png(text={"Author": "x"})[:-12], "png"),
+            (build_jpeg(exif=True)[:-2], "jpeg"),
+        ],
+    )
+    def test_malformed_metadata_container_has_structured_refusal(
+        self, data: bytes, fmt: str
+    ) -> None:
+        _, report = clean_bytes(data, fmt)
+        assert report.parse_status == "refused"
+        assert report.refusal_reasons
+        assert f"{fmt}.refusal.structure" in report.metadata
+
     def test_unsupported_format_says_so(self) -> None:
         cleaned, report = clean_bytes(b"%PDF-1.7\n", "pdf")
         assert cleaned == b"%PDF-1.7\n"
+        assert report.parse_status == "unsupported"
         assert any("No metadata cleaner" in u.reason for u in report.undeterminable)
 
 
@@ -123,45 +146,48 @@ class TestIdempotence:
 
 
 class TestReport:
-    def test_provenance_preservation_is_reported_not_silent(self) -> None:
+    def test_retained_manifest_bytes_are_not_called_preserved_provenance(self) -> None:
         _, report = clean_bytes(build_png(c2pa=True), "png")
         reasons = " ".join(u.reason for u in report.undeterminable)
-        assert "PRESERVED" in reasons
-        assert "soft binding" in reasons.lower()
+        assert "PRESERVED" not in reasons
+        assert "NOT VERIFIED" in reasons
+        assert report.parse_status == "refused"
+        assert report.metadata["png.c2pa_manifest_bytes_retained"] is True
 
-    def test_statistical_notice_still_present(self) -> None:
+    def test_binary_clean_report_omits_statistical_text_notice(self) -> None:
         _, report = clean_bytes(build_png(), "png")
-        assert any("NOT EVALUATED" in u.reason for u in report.undeterminable)
+        assert not any(
+            "statistical text watermark" in u.claim for u in report.undeterminable
+        )
 
-    def test_no_provenance_note_when_there_was_no_manifest(self) -> None:
+    def test_selective_removal_refusal_when_there_is_no_manifest(self) -> None:
         _, report = clean_bytes(build_png(text={"a": "b"}), "png")
-        assert not any("PRESERVED" in u.reason for u in report.undeterminable)
+        assert report.parse_status == "refused"
+        assert "png.refusal.selective_cleaning" in report.metadata
 
 
 class TestCli:
-    def test_in_place_rewrites_the_file(self, tmp_path) -> None:
+    def test_in_place_refuses_ambiguous_metadata(self, tmp_path) -> None:
         p = tmp_path / "shot.png"
         original = build_png(text={"Software": "Gen", "Author": "me"}, c2pa=True)
         p.write_bytes(original)
-        assert main(["clean", "-i", str(p), "--quiet"]) == 0
-        cleaned = p.read_bytes()
-        assert cleaned != original
-        assert "png.c2pa_manifest" in parse_png(cleaned)
-        assert not any(k.startswith("png.tEXt") for k in parse_png(cleaned))
+        assert main(["clean", "-i", str(p), "--quiet"]) == 2
+        assert p.read_bytes() == original
 
     def test_dry_run_leaves_the_file_alone(self, tmp_path) -> None:
         p = tmp_path / "shot.png"
         original = build_png(text={"Software": "Gen"})
         p.write_bytes(original)
-        assert main(["clean", "--dry-run", str(p), "--quiet"]) == 0
+        assert main(["clean", "--dry-run", str(p), "--quiet"]) == 2
         assert p.read_bytes() == original
 
     def test_backup_keeps_the_original(self, tmp_path) -> None:
         p = tmp_path / "shot.png"
         original = build_png(text={"Software": "Gen"})
         p.write_bytes(original)
-        assert main(["clean", "-i", "--backup", str(p), "--quiet"]) == 0
-        assert (tmp_path / "shot.png.bak").read_bytes() == original
+        assert main(["clean", "-i", "--backup", str(p), "--quiet"]) == 2
+        assert not (tmp_path / "shot.png.bak").exists()
+        assert p.read_bytes() == original
 
     def test_binary_to_stdout_is_refused(self, tmp_path, capsys) -> None:
         p = tmp_path / "shot.png"
@@ -173,5 +199,47 @@ class TestCli:
         p = tmp_path / "shot.png"
         original = build_png(text={"Software": "Gen"})
         p.write_bytes(original)
-        assert main(["clean", "--check", str(p), "--quiet"]) == 1
+        assert main(["clean", "--check", str(p), "--quiet"]) == 2
         assert p.read_bytes() == original
+
+
+class TestImageFidelity:
+    def test_png_pixels_and_profile_survive_refused_clean(self) -> None:
+        image_module = pytest.importorskip("PIL.Image")
+        png_module = pytest.importorskip("PIL.PngImagePlugin")
+        from io import BytesIO
+
+        image = image_module.new("RGB", (2, 2), (12, 34, 56))
+        info = png_module.PngInfo()
+        info.add_text("Copyright", "Example rights holder")
+        stream = BytesIO()
+        image.save(stream, format="PNG", pnginfo=info, icc_profile=b"profile-bytes")
+        original = stream.getvalue()
+        cleaned, report = clean_bytes(original, "png")
+        assert report.parse_status == "refused"
+        with (
+            image_module.open(BytesIO(original)) as before,
+            image_module.open(BytesIO(cleaned)) as after,
+        ):
+            assert list(after.getdata()) == list(before.getdata())
+            assert after.info.get("Copyright") == before.info.get("Copyright")
+            assert after.info.get("icc_profile") == before.info.get("icc_profile")
+
+    def test_jpeg_orientation_and_pixels_survive_refused_clean(self) -> None:
+        image_module = pytest.importorskip("PIL.Image")
+        from io import BytesIO
+
+        image = image_module.new("RGB", (3, 2), (90, 80, 70))
+        exif = image_module.Exif()
+        exif[274] = 6
+        stream = BytesIO()
+        image.save(stream, format="JPEG", exif=exif)
+        original = stream.getvalue()
+        cleaned, report = clean_bytes(original, "jpeg")
+        assert report.parse_status == "refused"
+        with (
+            image_module.open(BytesIO(original)) as before,
+            image_module.open(BytesIO(cleaned)) as after,
+        ):
+            assert after.getexif().get(274) == before.getexif().get(274) == 6
+            assert list(after.getdata()) == list(before.getdata())

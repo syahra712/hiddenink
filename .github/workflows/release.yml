@@ -19,7 +19,6 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,8 +41,17 @@ jobs:
       - run: pytest -q
       - name: Build
         run: python -m build
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
       - name: Artifact must match the repository
         run: pytest tests/test_release.py -q
+      - name: Test the installed wheel outside the source tree
+        run: |
+          python -m venv /tmp/hiddenink-wheel
+          /tmp/hiddenink-wheel/bin/pip install dist/*.whl pytest
+          cd /tmp
+          /tmp/hiddenink-wheel/bin/python -m pytest "$GITHUB_WORKSPACE/tests" -q
+          /tmp/hiddenink-wheel/bin/hiddenink --version
       - name: Tag must match the declared version
         run: |
           python - <<'PY'

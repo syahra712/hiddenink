@@ -7,9 +7,9 @@ deliberately, never silently.
 ## The most useful contribution
 
 **Challenge a conformance case.** [`corpus.py`](src/hiddenink/audit/corpus.py)
-states an expected output and a Unicode-semantics rationale for every input, and
-it is scored against tools including this one. I wrote both the corpus and one of
-the tools in it, which is a real conflict of interest.
+states an expected output and a Unicode-semantics rationale for every input. It
+is a project-authored regression suite, not an independent benchmark. The author
+writes both the corpus and hiddenink, which is a real conflict of interest.
 
 So: if a case looks wrong, say so. That is worth more than a feature.
 
@@ -30,10 +30,11 @@ pytest -q
 ```
 
 The core has **no dependencies**, and that is load-bearing rather than
-aesthetic: the product is trustworthy reports, so a user has to be able to read
-the whole trust-relevant codebase in an afternoon and run it air-gapped. New
-dependencies go in an extra (`[c2pa]`, `[research]`), never in `hiddenink.core`.
-A test enforces this.
+aesthetic: the product is trustworthy reports, so the trust-relevant code must
+remain reviewable and usable air-gapped. An
+optional dependency may go in an extra only when implemented, documented, and
+tested functionality calls it. Dependencies never go in `hiddenink.core`; a
+test enforces this.
 
 ## Before opening a pull request
 
@@ -41,44 +42,40 @@ A test enforces this.
 ruff check src tests
 mypy
 pytest -q
-python -m hiddenink.audit          # conformance must stay at full marks
+python -m hiddenink.audit          # review project-authored expectations
+python -m build
+python -m twine check dist/*
 ```
 
 Then, from the charter's checklist:
 
 - [ ] No banned claim phrases in user-facing strings (rule 1 — `test_contract.py`
       greps for them)
-- [ ] New empirical claims in docs carry a citation, labelled verified / inferred
-      / claimed
+- [ ] New empirical claims use primary sources and label inference explicitly
+- [ ] Parser changes update status, coverage, warning, and refusal reporting
+- [ ] External comparisons record repository URL, exact revision, command and
+      flags, run date, and runtime environment
 - [ ] New removal behaviour has an idempotence test and a protected-region test
 - [ ] Regenerate `RESULTS.md` if you changed cleaning behaviour
 
 ## Testing standards
 
-Two habits have caught almost every real bug in this project, and both are
-expected of new work.
+Two testing habits are expected of new work.
 
-**Fuzz anything position-dependent.** The idempotence guarantee passed a
-hand-written test suite for days while being broken in 0.5% of cases; a
-9,000-case fuzz found it in seconds, and a later one caught that
-`U+180B..U+180E` sit inside the Mongolian block so one variation selector
-vouched for the next. Curated cases prove you thought of something. Fuzzing
-finds what you did not.
+**Fuzz anything position-dependent.** Curated cases document known boundaries;
+deterministic fuzz/property tests exercise interactions between positions,
+regions, and repeated cleaning that examples can miss.
 
 **Prove a regression test fails without the fix.** A test that passes both ways
-documents nothing. The cp1252 crash regressions were verified by reverting the
-fix and watching them go red.
+does not demonstrate the defect it is intended to prevent.
 
 ## Scope
 
 Things deliberately not built, with reasons, are listed under
 [Deliberately out of scope](CHARTER.md#deliberately-out-of-scope). The short
-version: no statistical-watermark evasion, no keyless "is this AI?" verdict, no
+version: no statistical-watermark evasion, no "is this AI?" verdict, no
 provenance destruction. These are refusals rather than unclaimed tickets, so a
 pull request adding one will be declined regardless of how well it is written.
-
-If you want to do watermark-robustness research, [MarkLLM](https://github.com/THU-BPM/MarkLLM)
-is Apache-2.0 and is the right home for it.
 
 ## Reporting a vulnerability
 

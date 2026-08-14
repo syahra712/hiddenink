@@ -109,9 +109,16 @@ class TestClean:
     def test_removes_all_invisible_categories(self) -> None:
         dirty = f"a{ZWSP}b{RLO}c{TAG_A}d{SHY}e"
         cleaned, report = clean_text(dirty, Profile.PROSE)
-        assert cleaned == "abcde"
-        assert report.removed == 4
+        assert cleaned == f"abcd{SHY}e"
+        assert report.removed == 3
         assert report.changed
+
+    def test_context_dependent_formats_are_reported_not_deleted(self) -> None:
+        text = "private:\ue000 soft:\u00ad join:\u2060 cgj:\u034f"
+        cleaned, report = clean_text(text, Profile.PROSE)
+        assert cleaned == text
+        assert report.removed == 0
+        assert {finding.severity for finding in report.findings} == {Severity.CONTEXTUAL}
 
     def test_prose_preserves_typography(self) -> None:
         cleaned, _ = clean_text("a—b and “q”…", Profile.PROSE)
@@ -119,7 +126,7 @@ class TestClean:
 
     def test_code_folds_typography(self) -> None:
         cleaned, _ = clean_text("a—b and “q”…", Profile.CODE)
-        assert cleaned == "a-b and \"q\"..."
+        assert cleaned == 'a-b and "q"...'
 
     def test_exotic_space_folded_under_every_profile(self) -> None:
         for profile in Profile:
@@ -142,9 +149,9 @@ class TestClean:
         assert '`x = "y"`' in cleaned
 
     def test_fenced_block_folded_even_under_prose(self) -> None:
-        text = 'say “hi”\n\n```py\nn = “v”\n```\n'
+        text = "say “hi”\n\n```py\nn = “v”\n```\n"
         cleaned, _ = clean_text(text, Profile.PROSE)
-        assert 'say “hi”' in cleaned
+        assert "say “hi”" in cleaned
         assert 'n = "v"' in cleaned
 
     def test_emoji_survives_cleaning(self) -> None:

@@ -1,101 +1,79 @@
 # Changelog
 
-Notable changes per release. Dates are ISO-8601.
+Notable changes per release. Dates use ISO 8601.
 
-## [0.1.2] — 2026-08-14
+## [0.2.0] — 2026-08-14
 
-### Changed
-
-- README opens with a concrete before/after instead of context. The most
-  useful thing in the project -- that stripping invisible characters by
-  codepoint corrupts emoji, Urdu, and Russian, and that deciding per
-  occurrence does not -- was previously a hundred lines down, past the point
-  anyone reads.
-
-### Fixed
-
-- `tests/test_release.py` used `Path.read_text()` with no encoding, which
-  defaults to cp1252 on Windows and raised on the README's emoji and
-  Devanagari. Every Windows CI leg failed. Same defect that crashed the CLI,
-  reintroduced in the tests written to prevent released mistakes; now enforced
-  over the AST by `TestEncodingIsAlwaysExplicit`.
-
-## [0.1.1] — 2026-08-14
-
-### Fixed
-
-- The 0.1.0 project page on PyPI rendered a README saying the package was "not
-  on PyPI yet". PyPI builds a project page from the README inside the uploaded
-  artifact, and the README was corrected *after* the wheel was built, so the
-  stale text shipped. A version cannot be re-uploaded, hence this patch.
-- `README.md` table header no longer has an empty leading cell, which read
-  confusingly once rendered.
-
-### Added
-
-- `tests/test_release.py`: asserts the README inside `dist/*.whl` matches
-  `README.md`, that no pre-publication language survives, that Markdown tables
-  are not ragged, and that the version agrees across `pyproject.toml`,
-  `__init__.py`, and the changelog. This class of mistake cannot recur silently.
-
-## [0.1.0] — 2026-08-14
-
-First release. https://pypi.org/project/hiddenink/0.1.0/
-
-### Added
-
-- **Load-bearing invisible detection**, decided per occurrence rather than per
-  codepoint. A U+200D between Latin letters is a hidden mark; the same
-  codepoint between two emoji fuses a family into one glyph, and between two
-  Devanagari letters it is spelling. Covers emoji ZWJ sequences, subdivision
-  flag tag sequences, keycaps, Arabic/Indic/Persian orthography, Hangul
-  fillers, Khmer inherent vowels, and Mongolian free variation selectors.
-- **Confusable and mixed-script detection.** NFKC folding handles compatibility
-  variants (fullwidth, mathematical, circled) with no table; word-level
-  script-mixing analysis catches homographs no lookalike table lists. Folding
-  of cross-script letters is scoped to mixed-script runs, so legitimate
-  Cyrillic, Greek, and CJK text is never rewritten.
-- **Container metadata cleaning** for PNG and JPEG, under an explicit rule:
-  remove metadata that identifies the user, keep metadata that discloses AI
-  involvement. EXIF, text chunks, XMP, and comments go; C2PA manifests stay.
-- **Conformance corpus and audit harness** (`python -m hiddenink.audit`). States
-  an expected output and a rationale per input, in scored `CORRECTNESS` and
-  unscored `POLICY` tiers. Any tool reading stdin and writing stdout can be
-  measured. Results in [`RESULTS.md`](RESULTS.md).
-- `clean --check`, for gating CI on whether anything would change.
-- Codepoint coverage for `U+034F`, `U+115F`, `U+1160`, `U+17B4`, `U+17B5`, and
-  `U+180B`–`U+180E`, which are `Mn`/`Lo` rather than `Cf` and so were invisible
-  to the format-character fallback.
-- `SECURITY.md`, `CONTRIBUTING.md`, `py.typed`.
-
-### Fixed
-
-- **Idempotence**, which was documented and untrue: a fuzz found 45 violations
-  in 9,000 cases. Two independent causes — regions computed before invisible
-  removal, and folding emitting characters the region patterns key on. Cleaning
-  is now two-phase and folds to a fixed point.
-- **Text corruption of Indic, Arabic, and Persian documents**, and of emoji ZWJ
-  sequences and subdivision flags, all from stripping by codepoint identity.
-- **CLI crash on any non-UTF-8 console.** `inspect` died with a cp1252
-  `UnicodeEncodeError` on the default Windows console.
-- **Line-ending fidelity.** `clean` translated `\n` to `\r\n` on Windows when
-  writing to stdout, and a CRLF input came out as `\r\r\n`.
-- **Surrogate round-trip.** Reads used `surrogatepass` and writes used strict,
-  so `--in-place` crashed on files it could successfully inspect.
-- **`clean --json` discarded the cleaned text**, writing only a report.
-- **Multi-file `clean` concatenated to stdout** unrecoverably; now refused.
-- SVG was scanned for metadata but not for codepoints, despite being text.
-- Truncated containers lost their trailing partial data during cleaning.
+Release-hardening update. This version deliberately narrows earlier product
+claims rather than treating marketing language as compatibility.
 
 ### Security
 
-- XML entity expansion (billion laughs) and XXE: entity declarations in the
-  prolog are refused.
-- Decompression bombs in PNG `zTXt`/`iTXt` and in zip-based documents: output
-  is capped at 8 MB and oversized zip members are skipped on their declared
-  size without being read.
+- In-place changes now use synced same-directory temporary files and atomic
+  replacement where supported, with regular-file identity checks.
+- Symbolic links and non-regular targets are refused. Recursive traversal is
+  explicit, deterministic, de-duplicated, and skips named cache/build trees.
+- Multi-file cleaning preflights predictable errors before mutation.
+- Existing backups are refused unless `--overwrite-backup` is explicitly used.
+- Human reports escape terminal and bidirectional controls from untrusted data.
+- Container work now enforces cumulative byte/item/decompression limits and
+  refuses malformed structures rather than partially rewriting them.
+- Text, finding-output, recursive-file, stdin, and aggregate-operation limits
+  bound hostile-input memory use and return explicit resource-limit outcomes.
+- Unicode sequence handling now uses registered variation bases and derived
+  joining-type constraints; cleaning remains a fixed point even when removing
+  an invisible character exposes a CRLF pair.
 
-### Performance
+### Reporting
 
-- 4.8 MB clean: 38.37s → 0.217s, peak memory 85 MB → 10 MB.
-- 20,000 inline code spans: 15.35s → 0.066s (region resolution was quadratic).
+- Reports expose parse status, coverage, warnings, and refusal reasons.
+- Removal, folding, and normalisation counts are separate; the legacy
+  `removed` key remains for actual deletions.
+- Binary reports no longer receive an irrelevant statistical-text notice.
+- Human output says “findings,” not “flagged codepoints,” because mixed-script
+  findings may describe a span.
+- Office coverage is documented as properties-only and PDF coverage as a
+  shallow lexical metadata scan.
+- C2PA-looking bytes, manifest-store structure, retained bytes, parsed claims,
+  and cryptographic validity are no longer conflated.
+
+### Packaging and documentation
+
+- Removed unused `c2pa` and `research` extras. No code exercised the declared
+  dependencies.
+- Replaced unsupported Claude rollout/detector claims with the current official
+  Anthropic Transparency Hub boundary.
+- Replaced third-party AI Act summaries with the official EUR-Lex text and
+  corrected the 2 August 2026 application wording.
+- Removed universal remover, zero-corruption, market-leadership, and
+  fingerprint-detection claims.
+- Recast the self-authored corpus as a regression suite. External comparison
+  results require repository, revision, command, date, and runtime metadata.
+- CI builds, checks, and smoke-tests installed artifacts before release.
+
+### Compatibility
+
+- Directory traversal now requires `--recursive`.
+- Existing backup replacement requires `--overwrite-backup`.
+- JSON gains additive status and transformation fields.
+- Version advanced to 0.2.0 because reporting and safety contracts changed.
+
+## [0.1.2] — 2026-08-14
+
+- Revised the README presentation.
+- Added explicit UTF-8 handling to release-integrity tests.
+
+## [0.1.1] — 2026-08-14
+
+- Corrected stale README content in the distribution metadata.
+- Added release-integrity checks for version, README, and wheel metadata.
+
+## [0.1.0] — 2026-08-14
+
+- Initial beta with text inspection/cleaning, limited container metadata
+  inspection, PNG/JPEG cleaning, a CLI, and a project-authored corpus.
+
+The 0.1.x documentation made claims about Claude watermark rollout, provenance
+preservation, universal correctness, and comparative leadership that the
+implementation and cited sources did not establish. Those claims are not part
+of the 0.2.0 contract.

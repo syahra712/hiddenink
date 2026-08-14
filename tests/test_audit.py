@@ -7,6 +7,8 @@ contain the characters they claim to.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from hiddenink.audit import (
@@ -17,6 +19,7 @@ from hiddenink.audit import (
     policy_cases,
     render,
     run_tool,
+    to_json,
 )
 from hiddenink.audit.report import _is_invisible_for_display
 from hiddenink.core.clean_text import Profile
@@ -108,9 +111,39 @@ class TestRender:
     def test_output_is_markdown_with_a_summary(self) -> None:
         results = [run_tool("hiddenink", hiddenink_adapter())]
         text = render(results)
-        assert text.startswith("# Conformance results")
-        assert "| tool | correctness |" in text
+        assert text.startswith("# Project-authored conformance run")
+        assert "| tool | expected-output matches |" in text
         assert "hiddenink" in text
+
+    def test_run_metadata_is_machine_readable_and_rendered(self) -> None:
+        result = run_tool(
+            "example",
+            lambda text: text,
+            repository_url="https://example.invalid/repository",
+            revision="0123456789abcdef",
+            command="example --stdin",
+        )
+        payload = result.to_dict()
+        assert payload["repository_url"] == "https://example.invalid/repository"
+        assert payload["revision"] == "0123456789abcdef"
+        assert payload["command"] == "example --stdin"
+        assert payload["run_date"]
+        assert payload["runtime"]
+        rendered = render([result])
+        assert "## Run metadata" in rendered
+        assert "0123456789abcdef" in rendered
+
+    def test_untrusted_tool_metadata_cannot_inject_terminal_controls(self) -> None:
+        name = "\x1b]0;title\x07tool\u202e"
+        result = run_tool(name, lambda text: text, command="\x1b[2J")
+        rendered = render([result])
+        assert "\x1b" not in rendered
+        assert "\x07" not in rendered
+        assert "\u202e" not in rendered
+        assert "\\x1b" in rendered
+        payload = to_json([result])
+        assert "\x1b" not in payload
+        assert json.loads(payload)[0]["tool"] == name
 
     def test_invisible_characters_are_escaped_not_printed(self) -> None:
         text = render([run_tool("hiddenink", hiddenink_adapter())])
@@ -118,7 +151,7 @@ class TestRender:
             assert codepoint not in text, f"{codepoint!r} leaked into the report raw"
 
     def test_report_is_deterministic(self) -> None:
-        """It is committed to RESULTS.md, so it has to diff cleanly."""
+        """Repeated rendering in one recorded environment must diff cleanly."""
         first = render([run_tool("hiddenink", hiddenink_adapter())])
         second = render([run_tool("hiddenink", hiddenink_adapter())])
         assert first == second

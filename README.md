@@ -1,88 +1,14 @@
 # hiddenink
 
-### Find the ink you can't see.
-
-**Inspects and cleans the invisible characters, homoglyphs, and metadata hidden in text and files — and says precisely what it could *not* do.**
+Inspect hidden Unicode and supported file metadata without overstating what was
+examined. Cleaning is conservative, local, and reported as separate removal,
+folding, and normalisation counts.
 
 [![PyPI](https://img.shields.io/pypi/v/hiddenink)](https://pypi.org/project/hiddenink/)
 [![Python](https://img.shields.io/pypi/pyversions/hiddenink)](https://pypi.org/project/hiddenink/)
 [![License](https://img.shields.io/pypi/l/hiddenink)](LICENSE)
 
-Apache-2.0 · Python ≥3.10 · **zero dependencies** in the core · works offline
-
----
-
-## In ten seconds
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/syahra712/hiddenink/main/.github/demo.gif"
-       alt="An invoice that looks ordinary. hiddenink finds a Cyrillic homograph in the payment URL, a zero-width space, and a right-to-left override." width="760">
-</p>
-
-That invoice looks fine. The payment URL was never `paypal.com` — the `a` is Cyrillic.
-
-
-Every "AI watermark remover" strips invisible characters by codepoint. That is why they corrupt your text:
-
-```console
-$ echo "family 👨‍👩‍👧 · urdu ہے‌نا · russian привет мир" | other-cleaner
-family 👨👩👧 · urdu ہےنا · russian пpивeт миp
-#      ^^^^^^ emoji shattered   ^^^^^ spelling broken   ^^^^^ no longer Russian
-
-$ echo "family 👨‍👩‍👧 · urdu ہے‌نا · russian привет мир" | hiddenink clean
-family 👨‍👩‍👧 · urdu ہے‌نا · russian привет мир
-#      all intact — and the hidden marks are still gone
-```
-
-The zero-width joiner in `👨‍👩‍👧` is what makes it one glyph. In `ہے‌نا` it is spelling. Between two Latin letters it is a hidden mark. **Same codepoint, three verdicts** — so `hiddenink` decides per occurrence instead of per flag.
-
-Scored against a [conformance corpus](src/hiddenink/audit/corpus.py) you can run yourself:
-
-| tool | correctness | content corrupted |
-|---|---|---|
-| **hiddenink** | **40/40** | **0** |
-| the leading alternative | 35/40 | 3 |
-
----
-
-## The short version
-
-On 2026-08-11 Anthropic began marking Claude output for EU AI Act compliance. Within a day, a dozen "Claude watermark removers" appeared. Nearly all of them do the same two things: strip invisible Unicode, then ask another LLM to paraphrase your text.
-
-The first half is real and useful. The second half **cannot be verified by anyone** — Anthropic has published no detector, so no tool on earth can demonstrate that a statistical watermark was removed. The honest vendors admit this outright. One of them, [gpt-watermark-remover.com](https://gpt-watermark-remover.com/remove-claude-watermarks), puts it plainly:
-
-> "There is no character to strip, which means no character-removal tool can remove it. **Ours included.**"
-
-Others charge **$5.99–$39.99/month** for that same unverifiable claim, and store your drafts on their servers.
-
-`hiddenink` does the part that is real, does it better than anything else available, and refuses to bill you — in money or in false confidence — for the part that isn't.
-
-## The two layers
-
-Claude marks output in two structurally different ways:
-
-| layer | What it is | Can it be removed? | Can removal be **verified**? |
-|---|---|---|---|
-| **Character & metadata** | Invisible codepoints; C2PA/EXIF/XMP in files | **Yes** | **Yes** — the bytes are there or they aren't |
-| **Statistical** | Token-logit biasing under a secret key, applied below the model | Unknown | **No** — no public detector exists |
-
-`hiddenink` owns the first row completely. For the second row it emits a `not_determinable` section and moves on.
-
-Every single report carries both:
-
-```
-── essay.md
-VERIFIABLE  (decidable from the bytes)
-  16 flagged codepoints: 5 invisible, 2 whitespace, 9 typographic
-    · smart_quote          6
-    · zero_width           1
-    · bidi_control         1
-    · tag_character        1
-NOT DETERMINABLE  (no tool can decide these)
-  · Model-level statistical text watermark: NOT EVALUATED. Anthropic has
-    published no detector or scheme specification, so its presence, absence,
-    and removal are all undecidable by any third-party tool at this time.
-```
+Apache-2.0 · Python 3.10+ · dependency-free core · offline operation
 
 ## Install
 
@@ -90,108 +16,164 @@ NOT DETERMINABLE  (no tool can decide these)
 pip install hiddenink
 ```
 
-The core has **no dependencies at all** — not a design accident, a requirement. A tool whose entire value is that its reports mean what they say has to be auditable end to end and installable in an air-gapped environment. `pip freeze` after installing it lists exactly one package, and CI asserts that on every commit.
+The default package has no runtime dependencies. The former `c2pa` and
+`research` extras were removed because this release did not call their
+dependencies; declaring unused functionality made the package boundary
+misleading.
 
 ## Use
 
-```bash
-hiddenink inspect essay.md              # what am I actually carrying?
-hiddenink inspect diagram.png           # C2PA / EXIF / XMP in a container
-hiddenink clean notes.md                # write cleaned text to stdout
-hiddenink clean -i src/*.py             # rewrite in place
-hiddenink clean -i screenshot.png       # strip EXIF/text chunks, keep provenance
-hiddenink clean --check src/            # exit 1 if anything needs cleaning (CI)
-hiddenink inspect . --json | jq         # machine-readable, for CI
-```
-
-Gate a repo in pre-commit or CI:
+Inspect files:
 
 ```bash
-hiddenink inspect src/ --fail-on invisible
+hiddenink inspect notes.md
+hiddenink inspect image.png --json
+hiddenink inspect --recursive src/ --fail-on invisible
 ```
 
-## What makes it different
-
-**Three severities, not one bucket.** Invisible characters are never legitimate. Exotic spaces usually aren't. Em dashes and curly quotes usually *are*. Tools that lump these together are why the press called the category ["a text formatter wearing a trench coat"](https://currently.att.yahoo.com/att/claude-watermark-removal-tools-promise-143507892.html) — they mangle your typography and call it watermark removal.
-
-**Region-aware cleaning.** The same character gets different treatment depending on where it sits:
-
-| Input | `--profile prose` | `--profile code` |
-|---|---|---|
-| `clear—truly` (prose) | `—` kept | `-` folded |
-| `` `x = "y"` `` (code span) | `"` **folded** | `"` folded |
-| `example.com/a—b` (URL) | `—` **kept** | `—` **kept** |
-
-A curly quote inside a Markdown code fence is a bug even in a prose document. A dash inside a URL is load-bearing even in a source file. Both distinctions are in the audit's policy tier, so you can see for yourself which tools make them — as of the last run, no other one does.
-
-**Load-bearing invisibles are decided per occurrence.** This is the one that matters most, and it is measured below rather than asserted.
-
-The same codepoint can be contraband or essential depending only on what surrounds it:
-
-| example | U+200D sits between… | verdict |
-|---|---|---|
-| `he‍llo` | two Latin letters | **hidden mark** — Latin has no joining behaviour |
-| `👨‍👩‍👧` | two emoji | **content** — it is what makes the family one glyph |
-| `ا‍ب` | two Arabic letters | **orthography** — it forces cursive joining |
-
-U+200C is the same story: in `क्‌ष` and `می‌رود` it is *spelling*. A cleaner that strips by codepoint identity silently corrupts every Urdu, Hindi, Persian, and Arabic document it touches. One that preserves by codepoint identity leaves every hidden joiner in place.
-
-`hiddenink` decides from context, so both are handled correctly in the same document — including emoji ZWJ sequences, subdivision flags (`🏴󠁧󠁢󠁳󠁣󠁴󠁿`, whose tag characters spell the region code), keycaps, Hangul fillers, Khmer inherent vowels, and Mongolian variation selectors.
-
-**No `exiftool` dependency.** PNG chunks, JPEG APPn segments, OOXML/ODF zip parts, SVG nodes, and PDF Info dictionaries are parsed with the standard library. A tool that reports "no metadata found" because an optional binary is missing is worse than one that can't read the format at all.
-
-**Honest about C2PA soft binding.** When no manifest is found in a C2PA-capable file, `hiddenink` says so *and* warns that soft bindings ride in the pixels and survive metadata stripping. Stripping metadata does not make an image untraceable, and implying otherwise is the false confidence this whole product category sells.
-
-## Non-goals
-
-These are refusals, not roadmap items.
-
-- **No statistical-watermark evasion.** No bundled "paraphrase until it stops registering" mode. It can't be verified, it's the one use [Anthropic's policy](https://www.anthropic.com/legal/aup) actually names ("presenting results as human-generated"), and the same machinery enables *spoofing* — [94.17% of adversarially edited texts stay above detection threshold](https://openreview.net/forum?id=rIOl7KbSkv), which lets someone inject fabricated claims into text that still reads as "Claude wrote this."
-- **No "is this AI?" verdict.** Keyless detection of a single document is [computationally intractable if the scheme meets cryptographic undetectability](https://arxiv.org/abs/2306.09194), and uncalibrated accusations are a documented harm, not a feature.
-- **No provenance destruction.** `clean` rewrites container metadata under one rule: **remove metadata that identifies you, keep metadata that discloses AI involvement.** A PNG loses its text chunks and EXIF (GPS, camera serial, usernames, paths); it keeps its C2PA manifest. If you need the manifest gone, this is the wrong tool — and removing it would not make the file unmarked anyway, since C2PA soft bindings ride in the pixels.
-
-## If you've been falsely accused
-
-Anthropic's own documentation concedes that using Claude to **proofread or translate your own writing** leaves the mark on work you genuinely wrote. If that's happened to you, read **[docs/FALSE-FLAG.md](docs/FALSE-FLAG.md)** before you touch a removal tool.
-
-The short version: **erasing the mark makes your position worse, not better.** It destroys the only evidence anyone could examine, and removal leaves its own detectable signature. What actually wins an academic-integrity hearing is draft history, the sub-50-token no-signal floor, Anthropic's own "not fully conclusive" language, and the [61.3% false-positive rate AI detectors show against non-native English writers](https://arxiv.org/abs/2304.02819).
-
-## Measured, not asserted
-
-This project's own charter forbids claiming superiority without evidence, so the comparison is a runnable conformance suite rather than a paragraph. [`src/hiddenink/audit/corpus.py`](src/hiddenink/audit/corpus.py) states an expected output **and a reason** for every input; any tool that reads stdin and writes stdout can be scored:
+Clean text to standard output, preview changes, or replace a file:
 
 ```bash
-python -m hiddenink.audit "other-tool=path/to/their-cleaner"
+hiddenink clean notes.md
+hiddenink clean --check --recursive src/
+hiddenink clean --dry-run image.png
+hiddenink clean --in-place --backup notes.md
 ```
 
-Current results ([full table with per-case rationale](RESULTS.md)):
+Directory traversal is opt-in with `--recursive`. Traversal is lexical and
+deterministic; duplicate files are processed once. `.git`, `.hg`, `.svn`,
+common cache/virtual-environment directories, `node_modules`, `build`, and
+`dist` are ignored. Symbolic links and non-regular files are refused rather
+than followed. Bytes that are neither a recognised container nor decodable by
+the UTF-8 text reader are reported as an input error. One operation accepts at
+most 10,000 files and 256 MiB in aggregate; text APIs accept at most 1,000,000
+codepoints and reports retain at most 10,000 findings.
 
-| tool | correctness | content corrupted | contraband left in place |
-|---|---|---|---|
-| **hiddenink** | **40/40** | **0** | **0** |
-| watermarks-remover | 35/40 | 3 | 2 |
-| watermarks-remover `--strip-emoji-glue` | 28/40 | 11 | 1 |
-| watermarks-remover `--aggressive-homoglyphs` | 33/40 | 3 | 2 |
+In-place cleaning reads and preflights every target before changing the first
+one. Each changed file is written to a same-directory temporary file, synced,
+given the original file's mode and timestamps, and atomically replaced where
+the platform supports `os.replace`. A pre-existing `.bak` is never overwritten
+unless `--overwrite-backup` is also supplied. Cross-file atomicity is not
+possible: a later, unexpected filesystem failure can still leave an earlier
+replacement complete, but never partially written.
 
-Those are all the same tool, and together they are the argument for deciding **per occurrence** rather than per flag. Its protections are global switches, so each one trades one failure for another:
+Exit codes:
 
-- default — leaves hidden marks in place
-- `--strip-emoji-glue` — destroys emoji sequences and Indic orthography
-- `--aggressive-homoglyphs` — corrupts legitimate non-Latin text: `привет мир` comes out as **`пpивeт миp`**, which is not only no longer Russian but *more* confusable than the input, since it now genuinely mixes scripts
+- `0`: operation completed and no requested threshold was exceeded.
+- `1`: `--check` found a change or `--fail-on` found a matching severity.
+- `2`: usage, I/O, unsupported-input, malformed-input, or refusal condition.
 
-No combination of those flags gets one document right. Its five default-mode failures: a surviving private-use codepoint, an unterminated tag sequence kept as if it were a flag, and three destroyed load-bearing characters (Mongolian variation selector, Khmer inherent vowel, Hangul filler).
+## What inspection means
 
-**Read this critically.** I wrote both the corpus and one of the tools in it, which is a real conflict of interest. Two mitigations: every case carries a Unicode-semantics rationale you can check independently, and the suite is scored in CI against a deliberately destructive tool and a deliberately inert one, so it cannot silently degrade into a pass-everything harness. The **policy** tier exists for the same reason — differences that are legitimately matters of taste (whether an em dash in prose becomes a hyphen) are reported but never scored. If a case looks wrong, open an issue; the corpus is the contribution, not the scoreboard.
+Every report includes a parse status, a coverage statement, warnings, and
+refusal reasons. “No findings” means only that no finding was observed inside
+that stated coverage.
 
-## Prior art, credited
+| Input | Coverage |
+|---|---|
+| UTF-8 text | Flagged Unicode codepoints plus heuristic mixed-script detection |
+| PNG/JPEG | Validated container structure and supported metadata chunks/segments |
+| SVG | Parsed XML metadata plus a Unicode scan of decoded markup/text |
+| DOCX/XLSX/PPTX/ODF | Document properties only |
+| PDF | Shallow lexical metadata scan |
 
-- [`guillaumemeyer/watermarks-remover`](https://github.com/guillaumemeyer/watermarks-remover) (MIT) — the incumbent, and unusually honest in its README about what its statistical layer can't do. Differential testing against it found three genuine corruption bugs in `hiddenink`, including the Indic/Arabic one above; the comparison above is only meaningful because their tool is good enough to learn from.
-- [MarkLLM](https://github.com/THU-BPM/MarkLLM) (Apache-2.0) — the serious watermarking research toolkit. If you want real attack/robustness evaluation, use it, not a remover.
-- [`sanitext`](https://github.com/panispani/sanitext) (MIT), [`confusable-homoglyphs`](https://github.com/vhf/confusable_homoglyphs) (MIT) — Unicode hygiene prior art.
-- [c2pa-python](https://github.com/contentauth/c2pa-python) (Apache-2.0/MIT) — the real C2PA implementation, used by the optional `[c2pa]` extra.
+Office body text, Word comments/revisions, spreadsheet cells, presentation
+slides, and embedded media are not inspected. PDF compressed object streams,
+incremental-update semantics, encryption, and unsupported encodings are not a
+full-parser claim. These formats therefore report partial coverage rather than
+equating parser omission with absence.
+
+The human report escapes C0/C1, ANSI/OSC, and bidirectional terminal controls
+from filenames and metadata. JSON remains machine-readable and preserves the
+original values through JSON escaping.
+
+## Cleaning policy
+
+`hiddenink` distinguishes detection from rewriting. The profiles are:
+
+- `prose`: remove policy-defined hidden controls and fold exotic spaces while
+  preserving normal typography.
+- `code`: additionally fold selected typography. Mixed-script/confusable text
+  is reported; it is not automatically rewritten merely because it appears in
+  a source file, since strings and comments are not parsed by language syntax.
+- `data`: apply the code policy, drop a leading BOM, and normalise CRLF to LF.
+
+Context-dependent Unicode is preserved only when a supported sequence rule
+applies. Registered variation sequences, emoji sequences, and orthographic
+joiners are content, not generic “invisible junk.” URL and Markdown handling is
+heuristic; it is not a claim of complete URI or CommonMark parsing. Review a
+`--dry-run` report before applying policy-driven changes to valuable text.
+
+Binary cleaning is narrower than metadata inspection. A cleaner may refuse a
+malformed file, a structure it cannot validate, or a file whose provenance
+could be invalidated. It does not treat EXIF, XMP, ICC profiles, rights data,
+or arbitrary text chunks as interchangeable. Preserve the original and use an
+independent decoder when fidelity matters.
+
+## C2PA boundary
+
+The core can identify some container structures that may carry JUMBF/C2PA
+bytes. That is not the same as parsing a manifest or validating a credential.
+Reports distinguish:
+
+- C2PA-looking container bytes;
+- a structurally recognised manifest store;
+- retained manifest bytes;
+- parsed manifest claims; and
+- cryptographic validation of the credential and hard binding.
+
+The dependency-free core does not parse manifest claims or perform the final
+cryptographic credential/hard-binding validation. It never calls
+retained bytes “valid provenance.” C2PA defines hard bindings as cryptographic
+bindings between a manifest and an asset, and defines soft bindings separately;
+see the official [C2PA Content Credentials specification](https://spec.c2pa.org/specifications/specifications/2.4/specs/ContentCredentials.html).
+Because rewriting unrelated asset bytes can invalidate a hard binding, the safe
+outcome may be refusal.
+
+## Statistical watermark boundary
+
+`hiddenink` has no vendor detector and no model-specific statistical watermark
+scheme. Text reports therefore say that this layer was not evaluated; binary
+metadata reports do not repeat an irrelevant text-watermark notice.
+
+This project does not assert that Claude inserts zero-width characters, that
+EXIF/XMP proves Claude authorship, or that C2PA proves AI generation. Anthropic's
+current official [Transparency Hub](https://www.anthropic.com/transparency/voluntary-commitments)
+describes watermarking as an area it continues to explore; that source does not
+support the rollout story previously published here.
+
+## Law and policy
+
+Article 50(2) of the EU AI Act places machine-readable marking obligations on
+providers of covered AI systems, subject to feasibility and stated exceptions.
+Article 50(4) separately addresses disclosure by deployers for deepfakes and
+certain public-interest text. The Regulation applies from 2 August 2026, with
+the staged exceptions in Article 113. Read the official
+[EUR-Lex text of Regulation (EU) 2024/1689](https://eur-lex.europa.eu/eli/reg/2024/1689/oj?locale=en).
+Nothing in this README is legal advice, and the project does not infer a user's
+obligations from a file alone.
+
+## Conformance corpus
+
+`python -m hiddenink.audit` runs a project-authored Unicode regression corpus.
+It is useful for repeatable development tests, not proof of universal
+correctness or market leadership. Policy cases are unscored. A comparison is
+publishable only with the competitor repository, exact revision, command and
+flags, run date, runtime environment, and independently reviewable cases.
+
+See [RESULTS.md](RESULTS.md) for the current self-run and its limitations. The
+author writes both hiddenink and the corpus; that conflict of interest is not
+eliminated by a passing score.
+
+## Security and responsible use
+
+Read [SECURITY.md](SECURITY.md) for resource limits, hostile-file assumptions,
+and vulnerability reporting. If a document has been used in an authorship or
+academic-integrity dispute, preserve the original before inspecting it and see
+[docs/FALSE-FLAG.md](docs/FALSE-FLAG.md).
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-Not affiliated with or endorsed by Anthropic.
+Not affiliated with or endorsed by Anthropic, C2PA, or the European Union.

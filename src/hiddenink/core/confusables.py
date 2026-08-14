@@ -1,9 +1,8 @@
 """Confusable and mixed-script detection.
 
-The usual approach is a hand-written lookalike table: Cyrillic а maps to Latin
-a, and so on for a few dozen entries. That catches yesterday's substitutions
-and nothing else -- Unicode has thousands of confusable pairs and gains more
-every release.
+The usual compact implementation is a hand-written lookalike and script table.
+That is useful but necessarily versioned and incomplete; this module therefore
+describes its mixed-script scan as heuristic and keeps rewriting explicit.
 
 Two mechanisms here instead, because the problem has two halves:
 
@@ -16,8 +15,9 @@ codepoints with no table to maintain and no version to fall behind.
 different letters, so NFKC leaves them alone by design. These need a table, but
 the table is not the interesting part: the interesting part is that a *word*
 mixing Latin and Cyrillic is almost certainly an attack regardless of which
-specific pair was used. Mixed-script analysis (the approach of Unicode TR39)
-catches substitutions no table lists, including ones invented tomorrow.
+specific pair was used. Mixed-script analysis is informed by Unicode TR39, but
+this dependency-free implementation does not bundle the complete normative
+Scripts, Script_Extensions, and confusables data and does not claim conformance.
 
 Both are reported. Neither is folded by default in prose, because a document
 that legitimately contains Cyrillic is not an attack -- see
@@ -61,8 +61,10 @@ _SCRIPT_RANGES: tuple[tuple[int, int, Script], ...] = (
     (0x0370, 0x03FF, Script("Greek")),
     (0x1F00, 0x1FFF, Script("Greek")),
     (0x0400, 0x052F, Script("Cyrillic")),
+    (0x1C80, 0x1C8F, Script("Cyrillic")),
     (0x2DE0, 0x2DFF, Script("Cyrillic")),
     (0xA640, 0xA69F, Script("Cyrillic")),
+    (0x1E030, 0x1E08F, Script("Cyrillic")),
     (0x0530, 0x058F, Script("Armenian")),
     (0x0590, 0x05FF, Script("Hebrew")),
     (0x0600, 0x06FF, Script("Arabic")),
@@ -117,9 +119,7 @@ def script_of(codepoint: int) -> Script:
 def scripts_in(text: str) -> frozenset[Script]:
     """Every non-``Common`` script appearing in ``text``."""
     return frozenset(
-        script
-        for script in (script_of(ord(ch)) for ch in text)
-        if script is not COMMON
+        script for script in (script_of(ord(ch)) for ch in text) if script is not COMMON
     )
 
 
@@ -128,8 +128,12 @@ class SuspiciousRun:
     """A word-like run of text that mixes scripts."""
 
     text: str
+    #: Offset of the first actionable, out-of-script character.
     offset: int
     scripts: frozenset[Script]
+    span_start: int
+    span_end: int
+    suspicious_offsets: tuple[int, ...]
 
     @property
     def description(self) -> str:
@@ -138,10 +142,18 @@ class SuspiciousRun:
 
 
 def _is_word_character(ch: str) -> bool:
-    return ch.isalnum() or ch in "_-."
+    # Connector punctuation belongs to identifiers.  Period and hyphen do not:
+    # treating them as word characters merged ordinary bilingual compounds and
+    # adjacent sentences into one "mixed-script" run.
+    return ch.isalnum() or ch == "_"
 
 
-def suspicious_runs(text: str, minimum_length: int = 2) -> list[SuspiciousRun]:
+def suspicious_runs(
+    text: str,
+    minimum_length: int = 2,
+    *,
+    limit: int | None = None,
+) -> list[SuspiciousRun]:
     """Find word-like runs that mix scripts.
 
     A document containing both Latin and Cyrillic is perfectly ordinary -- a
@@ -152,6 +164,8 @@ def suspicious_runs(text: str, minimum_length: int = 2) -> list[SuspiciousRun]:
     Known-good combinations (Japanese Han + kana, Korean Han + Hangul) are
     excluded, so the check stays usable on CJK text.
     """
+    if limit is not None and limit <= 0:
+        return []
     runs: list[SuspiciousRun] = []
     start: int | None = None
 
@@ -166,7 +180,38 @@ def suspicious_runs(text: str, minimum_length: int = 2) -> list[SuspiciousRun]:
             return
         if any(found <= combination for combination in _LEGITIMATE_COMBINATIONS):
             return
-        runs.append(SuspiciousRun(text=word, offset=start, scripts=found))
+        script_counts: dict[Script, int] = {}
+        for ch in word:
+            script = script_of(ord(ch))
+            if script is not COMMON:
+                script_counts[script] = script_counts.get(script, 0) + 1
+
+        # Use the majority script as the baseline.  This identifies the
+        # Cyrillic ``a`` in ``paypal``-shaped Latin text, but also the Latin
+        # ``a`` in an otherwise Cyrillic identifier.  Prefer Latin only to
+        # break an exact tie; presence alone is not evidence that Latin is the
+        # intended script.
+        baseline = max(
+            script_counts,
+            key=lambda script: (script_counts[script], script == LATIN),
+        )
+        offending = tuple(
+            start + position
+            for position, ch in enumerate(word)
+            if script_of(ord(ch)) not in (COMMON, baseline)
+        )
+        if not offending:
+            return
+        runs.append(
+            SuspiciousRun(
+                text=word,
+                offset=offending[0],
+                scripts=found,
+                span_start=start,
+                span_end=end,
+                suspicious_offsets=offending,
+            )
+        )
 
     for index, ch in enumerate(text):
         if _is_word_character(ch):
@@ -174,6 +219,8 @@ def suspicious_runs(text: str, minimum_length: int = 2) -> list[SuspiciousRun]:
                 start = index
         else:
             flush(index)
+            if limit is not None and len(runs) >= limit:
+                return runs
             start = None
     flush(len(text))
     return runs
@@ -193,24 +240,57 @@ def suspicious_runs(text: str, minimum_length: int = 2) -> list[SuspiciousRun]:
 #: what actually protects the user, and a wrong fold is worse than no fold.
 #:
 #: Second, lowercase Greek is mathematical notation. Folding rho to ``p`` or nu
-#: to ``v`` would corrupt any physics or statistics document. Only omicron is
-#: listed, because it is visually identical to ``o`` and is never used as a
-#: variable name.
+#: to ``v`` would corrupt physics, statistics, and source code. Omicron remains
+#: in this explicitly requested rewrite table because it is a close Latin-o
+#: lookalike, but it can also be legitimate Greek or a variable name.
 CROSS_SCRIPT_FOLD: dict[int, str] = {
     # Cyrillic uppercase -- shares ancestry with Latin, so these are identical
     # glyphs in essentially every font.
-    0x0410: "A", 0x0412: "B", 0x0415: "E", 0x0417: "3", 0x041A: "K",
-    0x041C: "M", 0x041D: "H", 0x041E: "O", 0x0420: "P", 0x0421: "C",
-    0x0422: "T", 0x0423: "Y", 0x0425: "X",
-    0x0405: "S", 0x0406: "I", 0x0408: "J", 0x04C0: "I",
+    0x0410: "A",
+    0x0412: "B",
+    0x0415: "E",
+    0x0417: "3",
+    0x041A: "K",
+    0x041C: "M",
+    0x041D: "H",
+    0x041E: "O",
+    0x0420: "P",
+    0x0421: "C",
+    0x0422: "T",
+    0x0423: "Y",
+    0x0425: "X",
+    0x0405: "S",
+    0x0406: "I",
+    0x0408: "J",
+    0x04C0: "I",
     # Cyrillic lowercase
-    0x0430: "a", 0x0435: "e", 0x043A: "k", 0x043C: "m", 0x043E: "o",
-    0x0440: "p", 0x0441: "c", 0x0443: "y", 0x0445: "x",
-    0x0455: "s", 0x0456: "i", 0x0458: "j",
+    0x0430: "a",
+    0x0435: "e",
+    0x043A: "k",
+    0x043C: "m",
+    0x043E: "o",
+    0x0440: "p",
+    0x0441: "c",
+    0x0443: "y",
+    0x0445: "x",
+    0x0455: "s",
+    0x0456: "i",
+    0x0458: "j",
     # Greek uppercase -- likewise identical to Latin
-    0x0391: "A", 0x0392: "B", 0x0395: "E", 0x0396: "Z", 0x0397: "H",
-    0x0399: "I", 0x039A: "K", 0x039C: "M", 0x039D: "N", 0x039F: "O",
-    0x03A1: "P", 0x03A4: "T", 0x03A5: "Y", 0x03A7: "X",
+    0x0391: "A",
+    0x0392: "B",
+    0x0395: "E",
+    0x0396: "Z",
+    0x0397: "H",
+    0x0399: "I",
+    0x039A: "K",
+    0x039C: "M",
+    0x039D: "N",
+    0x039F: "O",
+    0x03A1: "P",
+    0x03A4: "T",
+    0x03A5: "Y",
+    0x03A7: "X",
     # Greek lowercase: omicron only. See the note above.
     0x03BF: "o",
 }
@@ -239,21 +319,19 @@ def fold_confusables(text: str) -> tuple[str, int]:
     The two mechanisms have different blast radii, so they get different scope.
 
     **Compatibility variants** (fullwidth, mathematical, circled) are folded
-    everywhere. They are decorative encodings of ASCII, so recovering the ASCII
-    cannot lose information.
+    everywhere. NFKC is intentionally lossy: it removes compatibility styling
+    and distinctions, so callers must opt into this policy explicitly.
 
     **Cross-script lookalikes** are folded *only inside a mixed-script run*.
     This matters enormously: folding Cyrillic а to ``a`` wherever it appears
     would turn ``привет`` into ``pривet``, corrupting every Russian document it
     touched. Inside ``pаypal`` the same character is an impersonation and the
-    fold is exactly right. Scope, not the table, is what makes this safe --
-    which is why a blanket "aggressive homoglyphs" switch is the wrong shape for
-    this problem.
+    fold may be useful for a security-normalized identifier, but it is still a
+    lossy policy choice. Scope reduces false rewrites; it does not make the
+    table universally safe.
     """
-    folded_runs = {
-        offset
-        for run in suspicious_runs(text)
-        for offset in range(run.offset, run.offset + len(run.text))
+    folded_offsets = {
+        offset for run in suspicious_runs(text) for offset in run.suspicious_offsets
     }
 
     out: list[str] = []
@@ -261,7 +339,7 @@ def fold_confusables(text: str) -> tuple[str, int]:
     for index, ch in enumerate(text):
         codepoint = ord(ch)
         replacement = nfkc_fold(codepoint)
-        if replacement is None and index in folded_runs:
+        if replacement is None and index in folded_offsets:
             replacement = CROSS_SCRIPT_FOLD.get(codepoint)
         if replacement is not None and replacement != ch:
             out.append(replacement)

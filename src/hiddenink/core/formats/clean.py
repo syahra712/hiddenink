@@ -1,228 +1,182 @@
-"""Container metadata removal.
+"""Rendering- and provenance-safe container cleaning.
 
-One rule decides everything in this module:
-
-    Remove metadata that identifies **the user**.
-    Keep metadata that identifies the content as **AI-generated**.
-
-Those two things are routinely bundled together and treated as one blob, which
-is why the tools in this space either strip nothing useful or strip the
-disclosure along with the private data. They are not the same:
-
-* An EXIF GPS tag, a camera serial number, an author name, a Windows username
-  embedded in a document path -- these identify a person. Publishing them is a
-  privacy leak, and removing them before publishing is ordinary practice.
-* A C2PA manifest says "a model was involved in making this". Removing it makes
-  AI-generated content look human-made, which is the thing this project does
-  not do.
-
-So a PNG loses its ``tEXt`` comments and ``eXIf`` block and keeps its ``caBX``
-manifest. If you need the manifest gone as well, this is not the tool -- and
-the report says so rather than pretending the file is now unmarked, because
-C2PA soft bindings live in the pixels and survive metadata removal anyway.
+PNG and JPEG metadata classes mix privacy fields with orientation, colour,
+accessibility, copyright, licensing, and provenance.  The dependency-free core
+does not have a trustworthy semantic rewriter for EXIF, XMP, ICC, IPTC, or C2PA.
+Accordingly the default path validates the container and then refuses ambiguous
+mutations instead of deleting whole marker/chunk classes.
 """
 
 from __future__ import annotations
 
-import struct
 import zipfile
+import zlib
+from collections.abc import Callable
 from io import BytesIO
+from typing import Any
 
 from ..report import Report, Undeterminable
-from .jpeg import JPEG_SIGNATURE
-from .png import PNG_SIGNATURE
+from .jpeg import parse_jpeg
+from .png import parse_png
 
-__all__ = [
-    "CLEANABLE",
-    "PROVENANCE_PRESERVED_NOTICE",
-    "clean_png",
-    "clean_jpeg",
-    "clean_bytes",
-]
+__all__ = ["CLEANABLE", "clean_png", "clean_jpeg", "clean_bytes", "is_valid_zip"]
 
-#: Formats whose metadata this module can rewrite.
 CLEANABLE = ("png", "jpeg")
 
-PROVENANCE_PRESERVED_NOTICE = (
-    "C2PA provenance manifest: PRESERVED, deliberately. hiddenink removes "
-    "metadata that identifies you and keeps metadata that discloses AI "
-    "involvement. Removing the manifest would not make the file unmarked in any "
-    "case: C2PA soft bindings are carried in the pixels."
+_C2PA_VALIDATION_BOUNDARY = (
+    "C2PA credential validity was NOT VERIFIED. The dependency-free parser can "
+    "recognise an embedded manifest-store structure, but it does not parse claims, "
+    "verify signatures or trust, or validate the asset hard binding."
 )
-
-# --- PNG ---------------------------------------------------------------------
-
-#: Chunks carrying user-identifying metadata. Everything not listed is kept,
-#: which is the safe default for a format where unknown ancillary chunks may
-#: still be meaningful to a decoder.
-_PNG_PRIVACY_CHUNKS = frozenset(
-    {
-        b"tEXt",  # Latin-1 keyword/value pairs
-        b"zTXt",  # compressed ditto
-        b"iTXt",  # UTF-8 ditto, where XMP usually lives
-        b"eXIf",  # EXIF: GPS, camera serial, timestamps
-        b"tIME",  # last-modification time
-    }
-)
-
-#: Chunks that disclose provenance and are therefore preserved.
-_PNG_PROVENANCE_CHUNKS = frozenset({b"caBX"})
 
 
 def clean_png(data: bytes) -> tuple[bytes, list[str], bool]:
-    """Strip privacy metadata from PNG bytes.
+    """Validate and conservatively retain all PNG bytes.
 
-    Returns ``(cleaned, removed_labels, provenance_kept)``. Malformed input is
-    returned unchanged rather than truncated: a cleaner that corrupts the file
-    it was asked to clean is worse than one that declines.
+    The boolean means only that a structurally recognised C2PA manifest-store
+    chunk remains byte-identical.  It says nothing about credential validity.
     """
-    if not data.startswith(PNG_SIGNATURE):
-        return data, [], False
-
-    out = bytearray(PNG_SIGNATURE)
-    removed: list[str] = []
-    provenance_kept = False
-    offset = len(PNG_SIGNATURE)
-
-    while offset + 8 <= len(data):
-        (length,) = struct.unpack(">I", data[offset : offset + 4])
-        chunk_type = data[offset + 4 : offset + 8]
-        end = offset + 12 + length  # length + type + body + crc
-        if end > len(data):
-            return data, [], False  # truncated; refuse rather than mangle
-
-        if chunk_type in _PNG_PRIVACY_CHUNKS:
-            removed.append(f"png.{chunk_type.decode('latin-1')}")
-        else:
-            if chunk_type in _PNG_PROVENANCE_CHUNKS:
-                provenance_kept = True
-            out += data[offset:end]
-
-        offset = end
-        if chunk_type == b"IEND":
-            # Some encoders append bytes after IEND. They are not ours to
-            # discard, so copy the remainder verbatim.
-            out += data[offset:]
-            return bytes(out), removed, provenance_kept
-
-    if offset != len(data):
-        # The chunk walk ran out before the data did, so part of the file was
-        # never classified. Emitting what we understood would silently truncate
-        # it; hand back the original instead.
-        return data, [], False
-    return bytes(out), removed, provenance_kept
-
-
-# --- JPEG --------------------------------------------------------------------
-
-#: APP segments and comments carrying user-identifying metadata.
-_JPEG_PRIVACY_MARKERS: dict[int, str] = {
-    0xE1: "jpeg.APP1",  # EXIF and XMP
-    0xE2: "jpeg.APP2",  # ICC / FlashPix
-    0xEC: "jpeg.APP12",  # Picture Info
-    0xED: "jpeg.APP13",  # Photoshop IRB / IPTC
-    0xEE: "jpeg.APP14",  # Adobe
-    0xFE: "jpeg.COM",  # free-text comment
-}
-
-#: APP11 carries JUMBF, which is where a C2PA manifest lives.
-_JPEG_PROVENANCE_MARKER = 0xEB
-
-_JPEG_STANDALONE = frozenset({0xD8, 0xD9, 0x01, *range(0xD0, 0xD8)})
+    parsed = parse_png(data)
+    retained = parsed.get("png.c2pa_manifest_store_structurally_parsed") is True
+    return data, [], retained
 
 
 def clean_jpeg(data: bytes) -> tuple[bytes, list[str], bool]:
-    """Strip privacy metadata from JPEG bytes.
-
-    Scanning stops at start-of-scan: everything after it is entropy-coded image
-    data, and a byte sequence there that happens to look like a marker is not
-    one.
-    """
-    if not data.startswith(JPEG_SIGNATURE):
-        return data, [], False
-
-    out = bytearray(JPEG_SIGNATURE)
-    removed: list[str] = []
-    provenance_kept = False
-    offset = 2
-
-    while offset + 2 <= len(data):
-        if data[offset] != 0xFF:
-            return data, [], False  # not at a marker boundary; refuse
-        marker = data[offset + 1]
-
-        if marker == 0xDA:  # start of scan: copy the remainder verbatim
-            out += data[offset:]
-            return bytes(out), removed, provenance_kept
-        if marker in _JPEG_STANDALONE:
-            out += data[offset : offset + 2]
-            offset += 2
-            continue
-
-        if offset + 4 > len(data):
-            return data, [], False
-        (length,) = struct.unpack(">H", data[offset + 2 : offset + 4])
-        end = offset + 2 + length
-        if end > len(data):
-            return data, [], False
-
-        if marker in _JPEG_PRIVACY_MARKERS:
-            removed.append(_JPEG_PRIVACY_MARKERS[marker])
-        else:
-            if marker == _JPEG_PROVENANCE_MARKER:
-                provenance_kept = True
-            out += data[offset:end]
-
-        offset = end
-
-    if offset != len(data):
-        return data, [], False  # never reached SOS; do not truncate
-    return bytes(out), removed, provenance_kept
+    """Validate and conservatively retain all JPEG bytes; see :func:`clean_png`."""
+    parsed = parse_jpeg(data)
+    retained = parsed.get("jpeg.c2pa_manifest_store_structurally_parsed") is True
+    return data, [], retained
 
 
-# --- dispatch ----------------------------------------------------------------
+_PARSERS: dict[str, Callable[[bytes], dict[str, Any]]] = {
+    "png": parse_png,
+    "jpeg": parse_jpeg,
+}
 
-_CLEANERS = {"png": clean_png, "jpeg": clean_jpeg}
+
+def _has_user_metadata(fmt: str, metadata: dict[str, object]) -> bool:
+    administrative = (
+        f"{fmt}.parse_status",
+        f"{fmt}.coverage",
+        f"{fmt}.warning.",
+        f"{fmt}.refusal.",
+    )
+    return any(not key.startswith(administrative) for key in metadata)
 
 
 def clean_bytes(data: bytes, fmt: str) -> tuple[bytes, Report]:
-    """Clean a container of the given format; return ``(bytes, report)``."""
-    cleaner = _CLEANERS.get(fmt)
-    if cleaner is None:
-        report = Report(source=f"<{fmt}>", kind=fmt)
-        report.undeterminable.append(
-            Undeterminable(
-                claim="container metadata removal",
-                reason=(
-                    f"No metadata cleaner for {fmt!r}. Supported: "
-                    f"{', '.join(CLEANABLE)}."
-                ),
-            )
+    """Safely assess a requested container cleanup.
+
+    Malformed inputs and semantically ambiguous metadata are returned
+    byte-identical with a namespaced refusal reason.  No report says provenance
+    is preserved merely because the manifest bytes were retained.
+    """
+    parser = _PARSERS.get(fmt)
+    if parser is None:
+        report = Report(
+            source=f"<{fmt}>",
+            kind=fmt,
+            metadata={f"{fmt}.refusal.unsupported": "no container cleaner available"},
+            undeterminable=[
+                Undeterminable(
+                    claim="container metadata removal",
+                    reason=(
+                        f"No metadata cleaner for {fmt!r}. Supported: "
+                        f"{', '.join(CLEANABLE)}."
+                    ),
+                )
+            ],
+            parse_status="unsupported",
+            coverage="no container cleaning implementation",
         )
         return data, report
 
-    cleaned, removed, provenance_kept = cleaner(data)
+    metadata = parser(data)
+    parser_status = str(metadata.get(f"{fmt}.parse_status", "partial"))
+    parser_reason = str(
+        metadata.get(f"{fmt}.warning.structure", "container parsing was incomplete")
+    )
+    undeterminable = [
+        Undeterminable(
+            claim="C2PA credential cryptographic validity",
+            reason=_C2PA_VALIDATION_BOUNDARY,
+        )
+    ]
+    refused = False
+    if parser_status != "complete":
+        refused = True
+        metadata[f"{fmt}.refusal.structure"] = (
+            f"container mutation refused: {parser_reason}"
+        )
+        undeterminable.append(
+            Undeterminable(
+                claim="container metadata removal",
+                reason=(
+                    f"Mutation REFUSED because parsing was {parser_status}: "
+                    f"{parser_reason}"
+                ),
+            )
+        )
+    elif any("c2pa_like" in key for key in metadata):
+        refused = True
+        metadata[f"{fmt}.c2pa_manifest_bytes_retained"] = True
+        metadata[f"{fmt}.refusal.provenance"] = (
+            "mutation refused: an embedded C2PA/JUMBF structure may bind to "
+            "other asset bytes"
+        )
+        undeterminable.append(
+            Undeterminable(
+                claim="valid provenance after cleaning",
+                reason=(
+                    "Mutation REFUSED. Retaining manifest bytes while changing "
+                    "other asset bytes could invalidate a hard binding, and this "
+                    "core cannot re-sign or re-validate the credential."
+                ),
+            )
+        )
+    elif _has_user_metadata(fmt, metadata):
+        refused = True
+        metadata[f"{fmt}.refusal.selective_cleaning"] = (
+            "mutation refused: metadata classes mix privacy with rendering, "
+            "rights, and accessibility semantics"
+        )
+        undeterminable.append(
+            Undeterminable(
+                claim="safe selective metadata removal",
+                reason=(
+                    "Mutation REFUSED. The default cleaner will not delete whole "
+                    "PNG chunks or JPEG marker classes that can carry colour, "
+                    "orientation, rights, accessibility, or provenance information."
+                ),
+            )
+        )
+
     report = Report(
         source=f"<{fmt}>",
         kind=fmt,
-        metadata={label: "removed" for label in removed},
+        metadata=metadata,
+        undeterminable=undeterminable,
+        changed=False,
+        removed=0,
+        parse_status="refused" if refused else parser_status,
+        coverage=str(metadata.get(f"{fmt}.coverage", "validated container structure")),
     )
-    report.changed = cleaned != data
-    report.removed = len(removed)
-    if provenance_kept:
-        report.undeterminable.append(
-            Undeterminable(
-                claim="C2PA provenance manifest removal",
-                reason=PROVENANCE_PRESERVED_NOTICE,
-            )
-        )
-    return cleaned, report
+    return data, report
 
 
 def is_valid_zip(data: bytes) -> bool:
-    """Whether a zip container is readable, used to guard Office rewriting."""
+    """Whether a zip container is readable without unsupported member features."""
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             return archive.testzip() is None
-    except (zipfile.BadZipFile, OSError):
+    except (
+        EOFError,
+        NotImplementedError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        zlib.error,
+    ):
         return False

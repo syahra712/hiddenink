@@ -16,8 +16,10 @@ import pytest
 from hiddenink.core.formats import detect_format, inspect_file, parse_bytes
 from hiddenink.core.formats.jpeg import parse_jpeg
 from hiddenink.core.formats.png import PNG_SIGNATURE, parse_png
+from hiddenink.core.formats.provenance import C2PA_MANIFEST_UUID
 
 # --- builders ----------------------------------------------------------------
+
 
 def _png_chunk(kind: bytes, body: bytes) -> bytes:
     return (
@@ -28,6 +30,22 @@ def _png_chunk(kind: bytes, body: bytes) -> bytes:
     )
 
 
+def _box(kind: bytes, body: bytes) -> bytes:
+    return struct.pack(">I", len(body) + 8) + kind + body
+
+
+def build_manifest_store() -> bytes:
+    """Small structurally conformant JUMBF C2PA manifest-store fixture."""
+    description = _box(b"jumd", C2PA_MANIFEST_UUID + b"\x03c2pa\x00")
+    manifest_description = _box(
+        b"jumd",
+        bytes.fromhex("63326d6100110010800000aa00389b71")
+        + b"\x03urn:c2pa:F9168C5E-CEB2-4FAA-B6BF-329BF39FA1E4\x00",
+    )
+    manifest = _box(b"jumb", manifest_description + _box(b"cbor", b"\xa0"))
+    return _box(b"jumb", description + manifest)
+
+
 def build_png(*, text: dict[str, str] | None = None, c2pa: bool = False) -> bytes:
     out = [PNG_SIGNATURE]
     out.append(_png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)))
@@ -36,7 +54,7 @@ def build_png(*, text: dict[str, str] | None = None, c2pa: bool = False) -> byte
             _png_chunk(b"tEXt", keyword.encode() + b"\x00" + value.encode("latin-1"))
         )
     if c2pa:
-        out.append(_png_chunk(b"caBX", b"\x00\x00\x00\x10jumbc2pa" + b"\x00" * 8))
+        out.append(_png_chunk(b"caBX", build_manifest_store()))
     out.append(_png_chunk(b"IDAT", zlib.compress(b"\x00\xff\xff\xff")))
     out.append(_png_chunk(b"IEND", b""))
     return b"".join(out)
@@ -52,13 +70,14 @@ def build_jpeg(*, exif: bool = False, xmp: str = "", c2pa: bool = False) -> byte
         out.append(_jpeg_segment(0xE1, b"Exif\x00\x00" + b"MM\x00*" + b"\x00" * 16))
     if xmp:
         out.append(
-            _jpeg_segment(
-                0xE1, b"http://ns.adobe.com/xap/1.0/\x00" + xmp.encode("utf-8")
-            )
+            _jpeg_segment(0xE1, b"http://ns.adobe.com/xap/1.0/\x00" + xmp.encode("utf-8"))
         )
     if c2pa:
-        out.append(_jpeg_segment(0xEB, b"JP\x00\x01c2pa manifest store" + b"\x00" * 8))
+        out.append(
+            _jpeg_segment(0xEB, b"JP\x00\x01\x00\x00\x00\x01" + build_manifest_store())
+        )
     out.append(_jpeg_segment(0xFE, b"a comment"))
+    out.append(_jpeg_segment(0xC0, b"\x08\x00\x01\x00\x01\x01\x01\x11\x00"))
     out.append(b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00")  # SOS
     out.append(b"\xff\xd9")
     return b"".join(out)
@@ -99,6 +118,7 @@ PDF_WITH_INFO = (
 
 # --- detection ---------------------------------------------------------------
 
+
 class TestDetectFormat:
     @pytest.mark.parametrize(
         ("data", "expected"),
@@ -121,6 +141,7 @@ class TestDetectFormat:
 
 # --- PNG ---------------------------------------------------------------------
 
+
 class TestPng:
     def test_reads_text_chunks(self) -> None:
         data = build_png(text={"Software": "Some Generator 1.0", "Author": "nobody"})
@@ -130,33 +151,47 @@ class TestPng:
 
     def test_detects_c2pa_manifest_chunk(self) -> None:
         found = parse_png(build_png(c2pa=True))
-        assert "png.c2pa_manifest" in found
+        assert found["png.c2pa_like"].startswith("caBX")
+        assert found["png.c2pa_manifest_store_structurally_parsed"] is True
+        assert "unavailable" in found["png.c2pa_credential_verified"]
 
     def test_bare_png_has_no_metadata(self) -> None:
-        assert parse_png(build_png()) == {}
+        found = parse_png(build_png())
+        assert found["png.parse_status"] == "complete"
+        assert set(found) == {"png.parse_status", "png.coverage"}
 
     def test_truncated_file_does_not_raise(self) -> None:
         truncated = build_png(text={"Software": "x"})[:40]
         parse_png(truncated)  # must not raise
 
     def test_non_png_returns_empty(self) -> None:
-        assert parse_png(b"not a png") == {}
+        assert parse_png(b"not a png")["png.parse_status"] == "malformed"
 
 
 # --- JPEG --------------------------------------------------------------------
+
 
 class TestJpeg:
     def test_reads_exif(self) -> None:
         assert "jpeg.exif" in parse_jpeg(build_jpeg(exif=True))
 
-    def test_reads_xmp_and_flags_c2pa_reference(self) -> None:
+    def test_arbitrary_c2pa_text_in_xmp_is_not_a_manifest(self) -> None:
         found = parse_jpeg(build_jpeg(xmp="<x:xmpmeta>c2pa:soft-binding</x:xmpmeta>"))
         assert "jpeg.xmp" in found
-        assert found["jpeg.xmp.c2pa_reference"] == "present"
+        assert not any(key.startswith("jpeg.c2pa_") for key in found)
 
     def test_detects_app11_c2pa_manifest(self) -> None:
         found = parse_jpeg(build_jpeg(c2pa=True))
-        assert found["jpeg.c2pa_manifest"] == "present"
+        assert found["jpeg.c2pa_manifest_store_structurally_parsed"] is True
+        assert "unavailable" in found["jpeg.c2pa_credential_verified"]
+
+    def test_unrelated_app11_is_not_assumed_to_be_c2pa(self) -> None:
+        data = build_jpeg().replace(
+            b"\xff\xfe", _jpeg_segment(0xEB, b"not-jumbf") + b"\xff\xfe", 1
+        )
+        found = parse_jpeg(data)
+        assert "jpeg.app11.1" in found
+        assert not any(key.startswith("jpeg.c2pa_") for key in found)
 
     def test_reads_comment(self) -> None:
         assert parse_jpeg(build_jpeg())["jpeg.comment"] == "a comment"
@@ -169,6 +204,7 @@ class TestJpeg:
 
 # --- documents ---------------------------------------------------------------
 
+
 class TestDocuments:
     def test_docx_core_properties(self) -> None:
         _, found = parse_bytes(build_docx())
@@ -178,19 +214,22 @@ class TestDocuments:
     def test_svg_title_and_c2pa(self) -> None:
         _, found = parse_bytes(SVG_WITH_METADATA)
         assert found["svg.title"] == "Generated Chart"
-        assert found["svg.c2pa_reference"] == "present"
+        assert not any(key.startswith("svg.c2pa_") for key in found)
 
     def test_pdf_info_dictionary(self) -> None:
         _, found = parse_bytes(PDF_WITH_INFO)
         assert found["pdf.info.Title"] == "Draft Essay"
         assert found["pdf.info.Producer"] == "SomeWriter 3.2"
+        assert found["pdf.parse_status"] == "partial"
 
     def test_malformed_svg_reports_rather_than_raises(self) -> None:
         _, found = parse_bytes(b'<?xml version="1.0"?><svg><unclosed>')
-        assert "svg.parse_error" in found
+        assert found["svg.parse_status"] == "malformed"
+        assert "svg.warning.xml" in found
 
 
 # --- report integration ------------------------------------------------------
+
 
 class TestInspectFile:
     def test_soft_binding_caveat_when_no_manifest(self, tmp_path) -> None:
@@ -198,14 +237,17 @@ class TestInspectFile:
         p.write_bytes(build_png())
         report = inspect_file(p)
         reasons = " ".join(u.reason for u in report.undeterminable)
-        assert "soft binding" in reasons.lower()
+        assert "soft-binding" in reasons.lower()
 
-    def test_no_soft_binding_caveat_when_manifest_present(self, tmp_path) -> None:
+    def test_manifest_structure_does_not_suppress_validation_caveat(
+        self, tmp_path
+    ) -> None:
         p = tmp_path / "signed.png"
         p.write_bytes(build_png(c2pa=True))
         report = inspect_file(p)
-        claims = [u.claim for u in report.undeterminable]
-        assert not any("soft binding" in c for c in claims)
+        reasons = " ".join(u.reason for u in report.undeterminable)
+        assert "structure was parsed" in reasons
+        assert "cryptographically VERIFIED" in reasons
 
     def test_unknown_format_says_so(self, tmp_path) -> None:
         p = tmp_path / "mystery.bin"
@@ -214,8 +256,12 @@ class TestInspectFile:
         assert report.kind == "unknown"
         assert any("Unrecognised" in u.reason for u in report.undeterminable)
 
-    def test_statistical_notice_always_present(self, tmp_path) -> None:
+    def test_binary_report_omits_irrelevant_statistical_text_notice(
+        self, tmp_path
+    ) -> None:
         p = tmp_path / "x.png"
         p.write_bytes(build_png())
         report = inspect_file(p)
-        assert any("NOT EVALUATED" in u.reason for u in report.undeterminable)
+        assert not any(
+            "statistical text watermark" in u.claim for u in report.undeterminable
+        )

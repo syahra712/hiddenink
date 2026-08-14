@@ -23,6 +23,14 @@ import hiddenink
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 README = ROOT / "README.md"
+PUBLIC_DOCS = (
+    README,
+    ROOT / "CHARTER.md",
+    ROOT / "RESULTS.md",
+    ROOT / "SECURITY.md",
+    ROOT / "CHANGELOG.md",
+    ROOT / "docs" / "FALSE-FLAG.md",
+)
 
 # Every read here passes encoding="utf-8" explicitly. Path.read_text() defaults
 # to the platform encoding, which is cp1252 on Windows, and this README contains
@@ -62,6 +70,44 @@ class TestReadmeHonesty:
 
     def test_install_instruction_is_the_published_one(self) -> None:
         assert "pip install hiddenink" in README.read_text(encoding="utf-8")
+
+    def test_removed_public_claims_do_not_return(self) -> None:
+        banned = (
+            "every ai watermark remover",
+            "the leading alternative",
+            "owns the first row completely",
+            "content corrupted: 0",
+            "anthropic began marking",
+            "near-perfect accuracy",
+            "c2pa-python",
+        )
+        for path in PUBLIC_DOCS:
+            text = path.read_text(encoding="utf-8").lower()
+            for phrase in banned:
+                assert phrase not in text, f"{path.name} contains {phrase!r}"
+
+    def test_directory_examples_use_recursive_flag(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if line.startswith("hiddenink ") and (" src/" in line or " ." in line):
+                assert "--recursive" in line
+
+
+class TestPackagingContract:
+    def test_dead_optional_extras_are_not_declared(self) -> None:
+        text = PYPROJECT.read_text(encoding="utf-8")
+        assert "c2pa-python" not in text
+        assert "transformers" not in text
+        assert "torch" not in text
+        assert "research =" not in text
+
+    def test_ci_tests_the_installed_wheel(self) -> None:
+        for workflow in ("ci.yml", "release.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(
+                encoding="utf-8"
+            )
+            assert "pip install dist/*.whl pytest" in text
+            assert "twine check dist/*" in text
 
     def test_no_unbalanced_markdown_tables(self) -> None:
         """A ragged table renders as garbage on PyPI, where nobody proofreads it.

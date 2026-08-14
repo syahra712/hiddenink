@@ -22,7 +22,12 @@ from hiddenink.core.inspect_text import inspect_text
 # Emoji and script samples, written as escapes so the intent survives editors
 # that normalise or strip the invisible characters.
 ZWJ, ZWNJ, ZWSP, VS16, RLO, CGJ = (
-    "‍", "‌", "​", "️", "‮", "͏",
+    "‍",
+    "‌",
+    "​",
+    "️",
+    "‮",
+    "͏",
 )
 FAMILY = f"\U0001f468{ZWJ}\U0001f469{ZWJ}\U0001f467"
 SCOTLAND = "\U0001f3f4" + "".join(
@@ -49,11 +54,17 @@ STRIP = [
     ("zwnj between latin letters", f"he{ZWNJ}llo", "hello"),
     ("tag character outside a flag", "tag\U000e0041chars", "tagchars"),
     ("bidi override", f"a{RLO}b", "ab"),
-    ("combining grapheme joiner", f"a{CGJ}b", "ab"),
     ("orphan variation selector", f"plain{VS16}text", "plaintext"),
     ("mongolian fvs without mongolian", "a᠋b", "ab"),
     ("hangul filler without hangul", "aᅟb", "ab"),
     ("truncated flag sequence", "\U0001f3f4\U000e0067", "\U0001f3f4"),
+]
+
+CONTEXTUAL = [
+    ("combining grapheme joiner", f"a{CGJ}b"),
+    ("soft hyphen", "soft\u00adhyphen"),
+    ("word joiner", "word\u2060joiner"),
+    ("private use", "private\ue000use"),
 ]
 
 
@@ -107,6 +118,15 @@ class TestSameCodepointBothWays:
         assert codepoint not in clean_text(hidden, Profile.PROSE)[0]
 
 
+class TestContextDependent:
+    @pytest.mark.parametrize(("name", "text"), CONTEXTUAL, ids=[n for n, _ in CONTEXTUAL])
+    @pytest.mark.parametrize("profile", list(Profile))
+    def test_reported_but_preserved(self, name: str, text: str, profile: Profile) -> None:
+        cleaned, report = clean_text(text, profile)
+        assert cleaned == text
+        assert report.findings
+
+
 class TestNeighbourResolution:
     """An intervening invisible must not change who governs a mark.
 
@@ -131,11 +151,7 @@ class TestNeighbourResolution:
 
     def test_load_bearing_is_position_dependent(self) -> None:
         text = f"{FAMILY} and he{ZWJ}llo"
-        flags = [
-            is_load_bearing(text, i)
-            for i, ch in enumerate(text)
-            if ch == ZWJ
-        ]
+        flags = [is_load_bearing(text, i) for i, ch in enumerate(text) if ch == ZWJ]
         assert flags == [True, True, False]
 
 

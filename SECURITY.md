@@ -1,61 +1,72 @@
 # Security policy
 
-`hiddenink` parses files it did not create — that is its entire purpose. Report
-anything that looks like a way to turn that against a user.
+`hiddenink` parses files it did not create. Treat every input, filename, and
+metadata value as attacker-controlled.
 
 ## Reporting
 
 Open a [private security advisory](https://github.com/syahra712/hiddenink/security/advisories/new).
-Please do not open a public issue for an unfixed vulnerability.
+Do not publish an unfixed vulnerability first. The project aims to acknowledge
+reports within seven days and credit reporters unless they request otherwise.
 
-Expect an acknowledgement within 7 days. If a fix is warranted it will land with
-a regression test and the advisory will credit you unless you ask otherwise.
+## Threat model
 
-## In scope
+In scope:
 
-The threat model is **a user runs `hiddenink` on a hostile file**. Anything that
-escapes that boundary is in scope:
+- resource exhaustion through size, count, compression, nesting, or algorithmic
+  complexity;
+- path traversal, symlink following, backup clobbering, or writes outside the
+  selected target;
+- parser-triggered code execution, entity expansion, or external resolution;
+- unexpected network access;
+- terminal injection through filenames or metadata; and
+- silent corruption or a report that states more certainty than the parser has.
 
-- Denial of service through resource exhaustion — decompression bombs, quadratic
-  parsing, unbounded memory
-- Path traversal or writes outside the target file
-- Code execution, including through deserialisation or entity resolution
-- Network access from a tool that is documented as working offline
-- **Silent corruption**: producing altered output while reporting success. This
-  is treated as a security bug, not a correctness bug, because the whole value
-  of the tool is that its reports can be trusted.
+## Current controls
 
-## Already defended, with tests
+- A CLI operation is capped at 10,000 files and 256 MiB of aggregate input.
+- Recognised container files are capped at 256 MiB. Text APIs are capped at
+  1,000,000 codepoints; the CLI applies a 4 MiB encoded-text preflight ceiling
+  before decoding, and stdin is read through the same bounded path.
+- A text report retains at most 10,000 findings. Crossing the text or finding
+  ceiling produces a structured `resource_limit` result rather than a partial
+  success claim.
+- Container chunk/member counts are capped at 10,000.
+- A decompressed member is capped at 8 MiB; aggregate metadata and aggregate
+  decompressed metadata are each capped at 16 MiB.
+- XML input is capped at 2 MiB with depth/element limits. Expat performs the
+  grammar-aware gate and refuses entity declarations; ElementTree builds a tree
+  only after that gate succeeds. The external-entity handler refuses resolution;
+  no resolver or network access is provided.
+- Malformed/resource-limited containers are reported distinctly and are not
+  partially rewritten.
+- Expected ZIP, compression, XML, and encoding failures become structured
+  warnings/refusals rather than tracebacks.
+- Human output escapes C0/C1, ANSI/OSC, and bidirectional terminal controls.
+  JSON uses JSON escaping and retains machine-readable values.
+- Recursive traversal is opt-in, sorted, de-duplicated, and does not follow
+  symlinks. Common repository cache/build directories are ignored.
+- In-place changes use a synced same-directory temporary file and `os.replace`;
+  regular-file identity is rechecked before replacement. Existing backups are
+  refused unless explicit overwrite authority is supplied.
 
-Reports of these are still welcome if you find a bypass. See
-[`_safety.py`](src/hiddenink/core/formats/_safety.py) and
-[`test_hardening.py`](tests/test_hardening.py).
+Limits are safety ceilings, not a proof that every accepted input is cheap.
+Reports that demonstrate excessive CPU or memory below these limits remain in
+scope.
 
-| Class | Defence |
-|---|---|
-| XML entity expansion (billion laughs) | Entity declarations in the prolog are refused outright |
-| XXE / external entities | Same refusal; no external entity handler is installed |
-| zlib decompression bombs (PNG `zTXt`/`iTXt`) | `decompressobj` with an 8 MB output cap; never materialised |
-| Zip bombs (`.docx`/`.odt`) | Declared member size checked *before* reading; oversized members skipped |
-| Truncated / malformed containers | Parsers report what they read; cleaners return input unchanged rather than truncating |
-| Lone surrogates | Read and written with `surrogatepass`, so inspection cannot crash on them |
-| Non-UTF-8 consoles | Streams reconfigured; a legacy codepage cannot crash a report |
+## Provenance and fidelity
 
-## Out of scope
+C2PA-looking bytes are not a validated credential. A hard binding may be
+invalidated by changing bytes outside its exclusion ranges, so a cleaning path
+must either validate the post-write result or refuse the mutation. The project
+does not delete provenance by design.
 
-- **Defeating a statistical text watermark.** Not a vulnerability; not a feature
-  request either. See [Non-goals](README.md#non-goals).
-- **Preserved C2PA manifests.** `hiddenink` removes metadata that identifies the
-  user and keeps metadata that discloses AI involvement. That is deliberate,
-  documented, and enforced by tests. If you need provenance stripped, this is
-  the wrong tool.
-- Findings that require the attacker to already control the machine running
-  `hiddenink`.
-- Vulnerabilities in optional extras (`[c2pa]`, `[research]`) that live in the
-  upstream dependency — report those upstream, though a note here is welcome so
-  the pin can be raised.
+Default image cleaning must preserve rendering, orientation, colour profiles,
+rights/licensing information, and accessibility data. A case where a successful
+default clean changes those semantics is a security issue.
 
 ## Supported versions
 
-Pre-1.0: only the latest release is supported. Once 1.0 lands, the two most
-recent minor versions will be.
+Before 1.0, only the latest release receives fixes. No optional `c2pa` or
+`research` dependency is shipped in 0.2.0; vulnerabilities in user-installed
+third-party tools are outside this package's boundary.

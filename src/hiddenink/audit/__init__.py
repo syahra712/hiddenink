@@ -1,4 +1,4 @@
-"""Conformance auditing for AI-provenance-mark cleaners.
+"""Project-authored conformance auditing for Unicode text cleaners.
 
 Run with ``python -m hiddenink.audit [NAME=COMMAND ...]``. With no arguments it
 scores this package alone; each extra argument adds another tool, driven by

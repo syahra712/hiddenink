@@ -21,6 +21,7 @@ from hiddenink.core.codepoints import Severity, classify, is_load_bearing
 from hiddenink.core.formats import inspect_file
 from hiddenink.core.formats._safety import (
     MAX_DECOMPRESSED_BYTES,
+    MAX_XML_BYTES,
     UnsafeDocument,
     bounded_decompress,
     safe_fromstring,
@@ -61,7 +62,10 @@ class TestXmlHardening:
             safe_fromstring(XXE)
 
     def test_parser_reports_rather_than_raising(self) -> None:
-        assert "svg.unsafe" in parse_svg(BILLION_LAUGHS)
+        found = parse_svg(BILLION_LAUGHS)
+        assert found["svg.parse_status"] == "refused"
+        assert "svg.refusal.xml" in found
+        assert "svg.warning.xml" in found
 
     def test_legitimate_svg11_doctype_still_parses(self) -> None:
         """Real SVG 1.1 files carry a DOCTYPE; refusing them would be a bug."""
@@ -76,6 +80,47 @@ class TestXmlHardening:
     def test_entity_text_in_content_is_not_a_false_positive(self) -> None:
         doc = b"<svg><title>the &lt;!ENTITY declaration</title></svg>"
         assert "svg.unsafe" not in parse_svg(doc)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            b"<!-- <svg><!ENTITY fake 'x'> -->",
+            b"<?processing instruction?>",
+            b"<!-- fake <root> --><!-- another -->",
+        ],
+    )
+    def test_comments_and_processing_instructions_do_not_hide_entity(
+        self, prefix: bytes
+    ) -> None:
+        doc = prefix + b"<!DOCTYPE svg [<!ENTITY x 'expanded'>]><svg>&x;</svg>"
+        with pytest.raises(UnsafeDocument):
+            safe_fromstring(doc)
+
+    @pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+    def test_utf16_entity_declaration_is_rejected(self, encoding: str) -> None:
+        text = '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "y">]><svg>&x;</svg>'
+        data = text.encode(encoding)
+        if encoding == "utf-16-le":
+            data = b"\xff\xfe" + data
+        elif encoding == "utf-16-be":
+            data = b"\xfe\xff" + data
+        with pytest.raises(UnsafeDocument):
+            safe_fromstring(data)
+
+    def test_parameter_entity_declaration_is_rejected(self) -> None:
+        doc = b"<!DOCTYPE svg [<!ENTITY % p 'x'>]><svg/>"
+        with pytest.raises(UnsafeDocument):
+            safe_fromstring(doc)
+
+    def test_utf16_document_without_entities_parses(self) -> None:
+        root = safe_fromstring(
+            "<?xml version='1.0'?><svg><title>x</title></svg>".encode("utf-16")
+        )
+        assert root.tag == "svg"
+
+    def test_xml_byte_limit_precedes_parser(self) -> None:
+        with pytest.raises(UnsafeDocument, match="safety limit"):
+            safe_fromstring(b"<svg><!--" + b"x" * MAX_XML_BYTES + b"--></svg>")
 
 
 class TestDecompressionBombs:
@@ -108,11 +153,62 @@ class TestDecompressionBombs:
     def test_docx_zip_bomb_is_skipped(self) -> None:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("[Content_Types].xml", "<Types/>")
             z.writestr("docProps/core.xml", "<a>" + "A" * (32 * 1024 * 1024) + "</a>")
         start = time.monotonic()
         found = parse_office(buf.getvalue())
         assert time.monotonic() - start < 2.0
-        assert "office.core.oversized" in found
+        assert "office.warning.core.oversized" in found
+        assert found["office.parse_status"] == "resource_limit"
+
+    def test_png_aggregate_decompression_budget(self) -> None:
+        compressed = zlib.compress(b"A" * MAX_DECOMPRESSED_BYTES)
+        chunks = [
+            _png_chunk(b"zTXt", f"k{i}".encode() + b"\x00\x00" + compressed)
+            for i in range(3)
+        ]
+        data = (
+            PNG_SIGNATURE
+            + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            + b"".join(chunks)
+            + _png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+            + _png_chunk(b"IEND", b"")
+        )
+        found = parse_png(data)
+        assert found["png.parse_status"] == "resource_limit"
+        assert "png.warning.decompression_limit" in found
+
+    def test_encrypted_office_part_becomes_warning(self) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("docProps/core.xml", "<a><title>x</title></a>")
+        data = bytearray(buf.getvalue())
+        local = data.find(b"PK\x03\x04", data.find(b"PK\x03\x04") + 1)
+        central = data.find(b"PK\x01\x02", data.find(b"PK\x01\x02") + 1)
+        struct.pack_into(
+            "<H", data, local + 6, struct.unpack_from("<H", data, local + 6)[0] | 1
+        )
+        struct.pack_into(
+            "<H", data, central + 8, struct.unpack_from("<H", data, central + 8)[0] | 1
+        )
+        found = parse_office(bytes(data))
+        assert "office.warning.core.encrypted" in found
+        assert found["office.parse_status"] == "partial"
+
+    def test_unsupported_office_compression_becomes_warning(self) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("docProps/core.xml", "<a><title>x</title></a>")
+        data = bytearray(buf.getvalue())
+        local = data.find(b"PK\x03\x04", data.find(b"PK\x03\x04") + 1)
+        central = data.find(b"PK\x01\x02", data.find(b"PK\x01\x02") + 1)
+        struct.pack_into("<H", data, local + 8, 99)
+        struct.pack_into("<H", data, central + 10, 99)
+        found = parse_office(bytes(data))
+        assert "office.warning.core.read" in found
+        assert found["office.parse_status"] == "partial"
 
 
 class TestTextualContainers:
@@ -152,7 +248,7 @@ class TestCliSafety:
         p = tmp_path / "x.pdf"
         p.write_bytes(b"%PDF-1.7\n<< /Title (t) >>\n%%EOF\n")
         assert main(["clean", str(p)]) == 2
-        assert "operates on text" in capsys.readouterr().err
+        assert "inspect its supported coverage" in capsys.readouterr().err
 
     def test_refuses_to_concatenate_multiple_files_to_stdout(
         self, tmp_path, capsys
@@ -199,9 +295,7 @@ class TestLegacyCodepageOutput:
         assert main(["inspect", str(p)]) == 0
         stream.flush()  # would raise UnicodeEncodeError unencoded
 
-    def test_untrusted_file_metadata_does_not_crash(
-        self, tmp_path, monkeypatch
-    ) -> None:
+    def test_untrusted_file_metadata_does_not_crash(self, tmp_path, monkeypatch) -> None:
         """A PNG text chunk can hold anything; cp1252 can hold very little."""
         stream = self._cp1252_stdout(monkeypatch)
         p = tmp_path / "f.png"
@@ -209,6 +303,7 @@ class TestLegacyCodepageOutput:
             PNG_SIGNATURE
             + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
             + _png_chunk(b"tEXt", "Software\x00図書館ソフト".encode("latin-1", "replace"))
+            + _png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
             + _png_chunk(b"IEND", b"")
         )
         assert main(["inspect", str(p)]) == 0
@@ -262,9 +357,24 @@ class TestIdempotenceFuzz:
     """
 
     ALPHABET = list("abc XYZ.\n") + [
-        "​", "‮", " ", "—", "“", "”", "…",
-        "﻿", "­", "\U000e0041", "️", "❤", "`", "```",
-        "https://x.com/", "⁠", "　", "'",
+        "​",
+        "‮",
+        " ",
+        "—",
+        "“",
+        "”",
+        "…",
+        "﻿",
+        "­",
+        "\U000e0041",
+        "️",
+        "❤",
+        "`",
+        "```",
+        "https://x.com/",
+        "⁠",
+        "　",
+        "'",
     ]
 
     def _corpus(self, seed: int, count: int, maxlen: int) -> list[str]:

@@ -4,15 +4,14 @@ Every ``hiddenink`` result is split into two sections:
 
 ``verifiable``
     Claims that are decidable from the bytes in front of us. An invisible
-    codepoint is present at offset N, or it is not. A C2PA manifest is
-    embedded, or it is not. These claims are reproducible by anyone.
+    codepoint is present at offset N, or it is not. A supported container
+    structure is present at a byte range, or it is not. These claims are
+    reproducible; credential validity remains a separate question.
 
 ``not_determinable``
-    Claims that cannot be decided with the information publicly available.
-    As of 2026-08-13 this includes every statement about the presence,
-    absence, or removal of a model-level statistical text watermark:
-    Anthropic has published neither the scheme nor a detector, so no tool --
-    including this one -- can evaluate it.
+    Claims that this inspection did not evaluate. For text, that includes the
+    presence, absence, or removal of any model-level statistical watermark:
+    this package has no vendor detector or model-specific scheme information.
 
 The split is machine-readable on purpose. A tool that reports "watermark
 removed" without being able to check is not reporting a result, it is
@@ -34,10 +33,44 @@ __all__ = ["Finding", "Undeterminable", "Report", "STATISTICAL_WATERMARK_NOTICE"
 #: Attached to every text report. The wording is deliberate: we do not say
 #: "no watermark found", because absence of evidence is not available to us.
 STATISTICAL_WATERMARK_NOTICE = (
-    "Model-level statistical text watermark: NOT EVALUATED. Anthropic has "
-    "published no detector or scheme specification, so its presence, absence, "
-    "and removal are all undecidable by any third-party tool at this time."
+    "Model-level statistical text watermark: NOT EVALUATED. hiddenink has no "
+    "vendor detector or model-specific scheme information, so this report makes "
+    "no claim about its presence, absence, or removal."
 )
+
+
+_DEFAULT_COVERAGE = {
+    "text": "Unicode codepoint scan and heuristic mixed-script detection",
+    "png": "PNG structure and supported metadata chunks",
+    "jpeg": "JPEG marker structure and supported metadata segments",
+    "svg": "SVG metadata elements and decoded XML text",
+    "office": (
+        "document properties only; body text, comments, revisions, cells, and "
+        "slides are not scanned"
+    ),
+    "pdf": (
+        "shallow lexical metadata scan; compressed objects and unsupported "
+        "encodings may not be visible"
+    ),
+    "unknown": "no parser selected",
+}
+
+
+def _is_diagnostic_metadata(key: str) -> bool:
+    suffix = key.rsplit(".", 1)[-1]
+    return (
+        suffix
+        in {
+            "parse_status",
+            "coverage",
+            "warning",
+            "warnings",
+            "refusal",
+            "refusal_reason",
+        }
+        or ".warning." in key
+        or ".refusal." in key
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,15 +146,57 @@ class Report:
     kind: str = "text"
     findings: list[Finding] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    """Byte-verifiable container metadata (C2PA, EXIF, XMP, doc properties)."""
+    """Parser results for supported container structures and metadata."""
     undeterminable: list[Undeterminable] = field(default_factory=list)
     changed: bool = False
     """Set by ``clean`` when the output differs from the input."""
     removed: int = 0
-    """Count of codepoints actually removed or folded by ``clean``."""
+    """Count of codepoints actually removed by ``clean``."""
+    folded: int = 0
+    """Count of characters replaced by a profile-specific fold."""
+    normalized: int = 0
+    """Count of other normalisations, such as BOM or CRLF handling."""
+    parse_status: str = ""
+    """Parser outcome, including ``complete``, ``partial``, or a refusal state."""
+    coverage: str = ""
+    """Plain-language statement of what the selected parser examined."""
+    warnings: list[str] = field(default_factory=list)
+    refusal_reasons: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if not self.undeterminable:
+        # Container parsers use namespaced metadata keys so old API consumers
+        # can still see every parser result. Lift their status into a stable,
+        # structured report contract as well.
+        for key, value in self.metadata.items():
+            suffix = key.rsplit(".", 1)[-1]
+            if suffix == "parse_status" and not self.parse_status:
+                self.parse_status = str(value)
+            elif suffix == "coverage" and not self.coverage:
+                self.coverage = str(value)
+            elif suffix in {"warning", "warnings"} or ".warning." in key:
+                values = value if isinstance(value, list) else [value]
+                self.warnings.extend(str(item) for item in values)
+            elif (
+                suffix in {"refusal", "refusal_reason"}
+                or ".refusal." in key
+            ):
+                self.refusal_reasons.append(str(value))
+
+        if not self.parse_status:
+            if self.kind == "text":
+                self.parse_status = "complete"
+            elif self.kind == "unknown":
+                self.parse_status = "unsupported"
+            else:
+                # Container readers vary in depth. Until a parser explicitly
+                # declares complete coverage, partial is the honest default.
+                self.parse_status = "partial"
+        if not self.coverage:
+            self.coverage = _DEFAULT_COVERAGE.get(self.kind, "limited inspection")
+
+        # A statistical *text* watermark caveat is useful for text, but is
+        # irrelevant noise on a binary metadata report.
+        if self.kind == "text" and not self.undeterminable:
             self.undeterminable = [
                 Undeterminable(
                     claim="statistical text watermark present / absent / removed",
@@ -145,13 +220,32 @@ class Report:
 
     @property
     def is_clean(self) -> bool:
-        """True if nothing byte-verifiable was flagged.
+        """True if a complete declared scan produced no finding or warning.
 
-        Note the scope: this says the *character and metadata layers* are
-        clean. It says nothing about the statistical layer, which is listed
-        under ``undeterminable`` precisely because it cannot be checked.
+        This is always relative to :attr:`coverage`; it makes no statement
+        about unimplemented parsing or any statistical watermark layer.
         """
-        return not self.findings and not self.metadata
+        return (
+            self.parse_status == "complete"
+            and not self.findings
+            and not self.substantive_metadata
+            and not self.warnings
+            and not self.refusal_reasons
+        )
+
+    @property
+    def substantive_metadata(self) -> dict[str, Any]:
+        """Parsed metadata excluding status/warning transport keys."""
+        return {
+            key: value
+            for key, value in self.metadata.items()
+            if not _is_diagnostic_metadata(key)
+        }
+
+    @property
+    def transformed(self) -> int:
+        """Total number of explicitly counted transformations."""
+        return self.removed + self.folded + self.normalized
 
     # -- serialisation -------------------------------------------------------
 
@@ -165,11 +259,22 @@ class Report:
                 "counts_by_severity": self.counts_by_severity(),
                 "metadata": self.metadata,
                 "total": len(self.findings),
+                "status": {
+                    "parse_status": self.parse_status,
+                    "coverage": self.coverage,
+                    "warnings": self.warnings,
+                    "refusal_reasons": self.refusal_reasons,
+                },
             },
             "not_determinable": [u.to_dict() for u in self.undeterminable],
             "changed": self.changed,
             "removed": self.removed,
+            "folded": self.folded,
+            "normalized": self.normalized,
+            "transformed": self.transformed,
         }
 
     def to_json(self, indent: int = 2) -> str:
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+        # ASCII-only JSON prevents bidi/C1 terminal effects when users inspect
+        # the raw machine output; decoding reconstructs the original values.
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=True)

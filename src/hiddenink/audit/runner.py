@@ -1,4 +1,4 @@
-"""Score a cleaner against the conformance corpus.
+"""Compare a cleaner with the project-authored conformance expectations.
 
 Tools are driven the way a user would drive them: text in on stdin, cleaned
 text out on stdout. That keeps the harness honest about what a tool actually
@@ -9,11 +9,13 @@ implementation in any language can be measured without adapting to us.
 from __future__ import annotations
 
 import json
+import platform
 import shlex
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from ..core.clean_text import Profile, clean_text
@@ -67,6 +69,16 @@ class Outcome:
 class ToolResult:
     tool: str
     outcomes: list[Outcome] = field(default_factory=list)
+    repository_url: str = ""
+    revision: str = ""
+    command: str = ""
+    run_date: str = field(default_factory=lambda: date.today().isoformat())
+    runtime: str = field(
+        default_factory=lambda: (
+            f"{platform.python_implementation()} {platform.python_version()}; "
+            f"{platform.platform()}"
+        )
+    )
 
     def _of_tier(self, tier: Tier) -> list[Outcome]:
         return [o for o in self.outcomes if o.case.tier is tier]
@@ -88,6 +100,11 @@ class ToolResult:
         passed, total = self.correctness
         return {
             "tool": self.tool,
+            "repository_url": self.repository_url,
+            "revision": self.revision,
+            "command": self.command,
+            "run_date": self.run_date,
+            "runtime": self.runtime,
             "correctness_passed": passed,
             "correctness_total": total,
             "corruptions": [o.case.name for o in self.corruptions],
@@ -137,14 +154,27 @@ def external_adapter(command: str, timeout: float = 30.0) -> Adapter:
     return clean
 
 
-def run_tool(name: str, adapter: Adapter, cases: tuple[Case, ...] = CORPUS) -> ToolResult:
+def run_tool(
+    name: str,
+    adapter: Adapter,
+    cases: tuple[Case, ...] = CORPUS,
+    *,
+    repository_url: str = "",
+    revision: str = "",
+    command: str = "",
+) -> ToolResult:
     """Run ``adapter`` over ``cases`` and collect outcomes.
 
     A tool that crashes on one case is recorded as failing that case and the
     run continues: refusing to report the other 40 results because one input
     was fatal would hide more than it protects.
     """
-    result = ToolResult(tool=name)
+    result = ToolResult(
+        tool=name,
+        repository_url=repository_url,
+        revision=revision,
+        command=command,
+    )
     for case in cases:
         try:
             produced = adapter(case.given)
@@ -157,21 +187,48 @@ def run_tool(name: str, adapter: Adapter, cases: tuple[Case, ...] = CORPUS) -> T
 
 
 def to_json(results: list[ToolResult]) -> str:
-    return json.dumps([r.to_dict() for r in results], indent=2, ensure_ascii=False)
+    return json.dumps([r.to_dict() for r in results], indent=2, ensure_ascii=True)
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - thin wrapper
     from .report import render
 
     args = list(sys.argv[1:] if argv is None else argv)
-    tools: list[tuple[str, Adapter]] = [("hiddenink", hiddenink_adapter())]
+    from .. import __version__
+
+    tools: list[tuple[str, Adapter, str, str, str]] = [
+        (
+            "hiddenink",
+            hiddenink_adapter(),
+            "https://github.com/syahra712/hiddenink",
+            f"release {__version__} (working tree)",
+            "in-process hiddenink_adapter(profile=prose)",
+        )
+    ]
     for spec in args:
         if "=" not in spec:
             print(f"audit: expected NAME=COMMAND, got {spec!r}", file=sys.stderr)
             return 2
         name, command = spec.split("=", 1)
-        tools.append((name, external_adapter(command)))
+        tools.append(
+            (
+                name,
+                external_adapter(command),
+                "",
+                "not recorded",
+                command,
+            )
+        )
 
-    results = [run_tool(name, adapter) for name, adapter in tools]
+    results = [
+        run_tool(
+            name,
+            adapter,
+            repository_url=repository_url,
+            revision=revision,
+            command=command,
+        )
+        for name, adapter, repository_url, revision, command in tools
+    ]
     print(render(results))
     return 0

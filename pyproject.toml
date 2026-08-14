@@ -1,17 +1,11 @@
 [build-system]
-# Pinned below 1.28 deliberately. Newer hatchling emits Metadata-Version 2.5,
-# and nothing on PyPI is currently published with it -- the newest seen in the
-# wild is 2.4 -- so uploading 2.5 risks a server-side rejection that would only
-# surface after a release attempt. 1.27 emits 2.4 and still supports the PEP 639
-# `license = "Apache-2.0"` expression below, so nothing is given up.
-# Lift this once PyPI is confirmed to accept 2.5.
-requires = ["hatchling>=1.27,<1.28"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "hiddenink"
-version = "0.1.2"
-description = "Find the ink you can't see. Inspects and cleans invisible Unicode, homoglyphs, and container metadata — and says precisely what it did not do."
+version = "0.2.0"
+description = "Inspect and conservatively clean hidden Unicode and supported file metadata, with explicit coverage and refusal reporting."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -19,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Syed Ahnaf Raza" }]
 keywords = [
     "watermark", "provenance", "c2pa", "unicode", "zero-width",
-    "ai-detection", "text-hygiene", "trojan-source",
+    "text-hygiene", "trojan-source",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -40,8 +34,6 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-c2pa = ["c2pa-python>=0.7"]
-research = ["transformers>=4.46", "torch>=2.0", "numpy>=1.24", "scipy>=1.10"]
 dev = ["pytest>=7", "ruff>=0.5", "mypy>=1.8"]
 
 [project.scripts]
