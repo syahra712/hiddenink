@@ -7,7 +7,9 @@ the charter in the same pull request, deliberately.
 
 from __future__ import annotations
 
+import ast
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -144,3 +146,53 @@ class TestRule6AbsenceIsNotAbsence:
         reasons = " ".join(u.reason for u in inspect_file(p).undeterminable).lower()
         assert "soft binding" in reasons
         assert "does not establish the absence" in reasons
+
+
+class TestEncodingIsAlwaysExplicit:
+    """No text file read or write may rely on the platform default encoding.
+
+    The default is cp1252 on Windows, so a bare ``read_text()`` raises on any
+    file containing emoji, Devanagari, or Cyrillic -- all of which appear in
+    this project's own fixtures and README. This has caused two separate
+    failures already: a CLI crash on a Windows console, and then the
+    release-integrity tests written to catch released mistakes.
+
+    Checked over the AST rather than by grepping lines, because a line-based
+    version reported ``zipfile.open`` (which is binary), calls whose
+    ``encoding=`` sat on a later line, and its own source.
+    """
+
+    #: Text modes. A mode containing "b" is binary and takes no encoding.
+    _TEXT_MODE = re.compile(r"^[rwxa]\+?$")
+
+    def _violations(self, path: Path) -> list[str]:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        found: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(
+                node.func, ast.Attribute
+            ):
+                continue
+            name = node.func.attr
+            if name not in ("read_text", "write_text", "open"):
+                continue
+            if any(kw.arg == "encoding" for kw in node.keywords):
+                continue
+            if name == "open":
+                # Only a literal text mode makes this a text stream; anything
+                # else (zipfile members, no mode, a variable) is out of scope.
+                modes = [
+                    a.value
+                    for a in node.args
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str)
+                ]
+                if not any(self._TEXT_MODE.match(m) for m in modes):
+                    continue
+            found.append(f"{path.name}:{node.lineno}: {name}() without encoding=")
+        return found
+
+    def test_no_implicit_encoding(self) -> None:
+        offenders: list[str] = []
+        for path in (*SRC.rglob("*.py"), *Path(__file__).parent.glob("*.py")):
+            offenders.extend(self._violations(path))
+        assert not offenders, "implicit encoding:\n  " + "\n  ".join(offenders)

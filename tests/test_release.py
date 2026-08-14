@@ -24,9 +24,17 @@ ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 README = ROOT / "README.md"
 
+# Every read here passes encoding="utf-8" explicitly. Path.read_text() defaults
+# to the platform encoding, which is cp1252 on Windows, and this README contains
+# emoji and Devanagari -- so the bare call raises UnicodeDecodeError there. It is
+# the same defect that once crashed the CLI on a Windows console, reintroduced in
+# the tests that were written to prevent released mistakes. Hence the sweep:
+# `grep -rn "read_text()" --include='*.py'` should return nothing.
+
 
 def _declared_version() -> str:
-    match = re.search(r'^version = "([^"]+)"', PYPROJECT.read_text(), re.M)
+    text = PYPROJECT.read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.M)
     assert match, "no version in pyproject.toml"
     return match.group(1)
 
@@ -36,7 +44,7 @@ class TestVersionConsistency:
         assert hiddenink.__version__ == _declared_version()
 
     def test_changelog_mentions_the_current_version(self) -> None:
-        changelog = (ROOT / "CHANGELOG.md").read_text()
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         version = _declared_version()
         assert version in changelog, f"CHANGELOG.md has no entry for {version}"
 
@@ -45,7 +53,7 @@ class TestReadmeHonesty:
     """The README is the project page. Claims in it have to be true on release."""
 
     def test_no_stale_prepublication_language(self) -> None:
-        text = README.read_text().lower()
+        text = README.read_text(encoding="utf-8").lower()
         for phrase in ("not on pypi yet", "not yet published", "coming soon"):
             assert phrase not in text, (
                 f"README still says {phrase!r} -- it is published. This exact "
@@ -53,7 +61,7 @@ class TestReadmeHonesty:
             )
 
     def test_install_instruction_is_the_published_one(self) -> None:
-        assert "pip install hiddenink" in README.read_text()
+        assert "pip install hiddenink" in README.read_text(encoding="utf-8")
 
     def test_no_unbalanced_markdown_tables(self) -> None:
         """A ragged table renders as garbage on PyPI, where nobody proofreads it.
@@ -68,7 +76,8 @@ class TestReadmeHonesty:
         """
         expected: int | None = None
         block = 0
-        for number, line in enumerate(README.read_text().splitlines(), start=1):
+        lines = README.read_text(encoding="utf-8").splitlines()
+        for number, line in enumerate(lines, start=1):
             stripped = line.strip()
             is_row = stripped.startswith("|") and stripped.endswith("|")
             if not is_row:
@@ -106,7 +115,7 @@ class TestBuiltArtifact:
             )
             metadata = archive.read(name).decode("utf-8")
         body = metadata.split("\n\n", 1)[1]
-        repo_readme = README.read_text()
+        repo_readme = README.read_text(encoding="utf-8")
         assert body.strip() == repo_readme.strip(), (
             "the README inside the wheel differs from README.md -- rebuild "
             "before uploading, or PyPI will render the stale one forever"
