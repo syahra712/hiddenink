@@ -14,6 +14,14 @@ Apache-2.0 · Python ≥3.10 · **zero dependencies** in the core · works offli
 
 ## In ten seconds
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/syahra712/hiddenink/main/.github/demo.gif"
+       alt="An invoice that looks ordinary. hiddenink finds a Cyrillic homograph in the payment URL, a zero-width space, and a right-to-left override." width="760">
+</p>
+
+That invoice looks fine. The payment URL was never `paypal.com` — the `a` is Cyrillic.
+
+
 Every "AI watermark remover" strips invisible characters by codepoint. That is why they corrupt your text:
 
 ```console
