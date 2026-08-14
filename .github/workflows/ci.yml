@@ -93,3 +93,48 @@ jobs:
           PY
       - name: CLI works on a clean install
         run: marklens inspect README.md --quiet
+
+  # The conformance corpus is the project's evidence that it is more correct
+  # than the alternatives, so a regression in it is a regression in the claim.
+  # Scored here against marklens itself; the destructive- and inert-tool
+  # guardrails in tests/test_audit.py stop it decaying into a pass-everything
+  # harness.
+  conformance:
+    name: conformance corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - name: Score marklens against the corpus
+        run: |
+          python - <<'PY'
+          from marklens.audit import correctness_cases, marklens_adapter, run_tool
+
+          result = run_tool("marklens", marklens_adapter(), correctness_cases())
+          passed, total = result.correctness
+          for outcome in result.outcomes:
+              if not outcome.passed:
+                  print(f"FAIL {outcome.case.name}: {outcome.case.why}")
+                  print(f"     expected {outcome.case.expect!r}")
+                  print(f"     produced {outcome.produced!r} {outcome.error}")
+          print(f"correctness {passed}/{total}")
+          assert passed == total, f"{total - passed} conformance failure(s)"
+          PY
+      - name: RESULTS.md is regenerated and committed
+        run: |
+          python -m marklens.audit > /tmp/fresh.md
+          python - <<'PY'
+          # Only the marklens rows are reproducible here; the competitor rows
+          # need their tool checked out, so compare the sections we own.
+          fresh = open("/tmp/fresh.md").read()
+          committed = open("RESULTS.md").read()
+          for line in fresh.splitlines():
+              if line.startswith("| marklens |"):
+                  assert line in committed, (
+                      f"RESULTS.md is stale -- regenerate it.\n  expected row: {line}"
+                  )
+          print("RESULTS.md marklens row is current")
+          PY
