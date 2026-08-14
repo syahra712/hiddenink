@@ -127,13 +127,18 @@ Current results ([full table with per-case rationale](RESULTS.md)):
 
 | tool | correctness | content corrupted | contraband left in place |
 |---|---|---|---|
-| **marklens** | **36/36** | **0** | **0** |
-| watermarks-remover | 31/36 | 3 | 2 |
-| watermarks-remover `--strip-emoji-glue` | 24/36 | 11 | 1 |
+| **marklens** | **40/40** | **0** | **0** |
+| watermarks-remover | 35/40 | 3 | 2 |
+| watermarks-remover `--strip-emoji-glue` | 28/40 | 11 | 1 |
+| watermarks-remover `--aggressive-homoglyphs` | 33/40 | 3 | 2 |
 
-Those two rows are the same tool, and together they are the argument for deciding per occurrence: its protection is a **global** flag, so it must choose between leaving hidden marks in place (default) or corrupting emoji and Indic orthography (`--strip-emoji-glue`). It cannot do both correctly in one document.
+Those are all the same tool, and together they are the argument for deciding **per occurrence** rather than per flag. Its protections are global switches, so each one trades one failure for another:
 
-Its five default-mode failures: a surviving private-use codepoint, an unterminated tag sequence kept as if it were a flag, and three destroyed load-bearing characters (Mongolian variation selector, Khmer inherent vowel, Hangul filler).
+- default — leaves hidden marks in place
+- `--strip-emoji-glue` — destroys emoji sequences and Indic orthography
+- `--aggressive-homoglyphs` — corrupts legitimate non-Latin text: `привет мир` comes out as **`пpивeт миp`**, which is not only no longer Russian but *more* confusable than the input, since it now genuinely mixes scripts
+
+No combination of those flags gets one document right. Its five default-mode failures: a surviving private-use codepoint, an unterminated tag sequence kept as if it were a flag, and three destroyed load-bearing characters (Mongolian variation selector, Khmer inherent vowel, Hangul filler).
 
 **Read this critically.** I wrote both the corpus and one of the tools in it, which is a real conflict of interest. Two mitigations: every case carries a Unicode-semantics rationale you can check independently, and the suite is scored in CI against a deliberately destructive tool and a deliberately inert one, so it cannot silently degrade into a pass-everything harness. The **policy** tier exists for the same reason — differences that are legitimately matters of taste (whether an em dash in prose becomes a hyphen) are reported but never scored. If a case looks wrong, open an issue; the corpus is the contribution, not the scoreboard.
 

@@ -10,10 +10,16 @@ import re
 from bisect import bisect_right
 from collections.abc import Iterator
 
-from .codepoints import Severity, classify, is_load_bearing
+from .codepoints import Category, Severity, classify, is_load_bearing
+from .confusables import suspicious_runs
 from .report import Finding, Report
 
-__all__ = ["inspect_text", "iter_findings", "render_context"]
+__all__ = [
+    "inspect_text",
+    "iter_findings",
+    "iter_mixed_script_findings",
+    "render_context",
+]
 
 _DEFAULT_CONTEXT = 24
 
@@ -106,6 +112,34 @@ def iter_findings(
         )
 
 
+def iter_mixed_script_findings(
+    text: str, context_width: int = _DEFAULT_CONTEXT
+) -> Iterator[Finding]:
+    """Yield a finding per word-like run that mixes scripts.
+
+    Reported separately from codepoint findings because the defect is a property
+    of the *run*, not of any single character: every character in ``pаypal`` is
+    individually unremarkable. Known-good combinations -- Japanese Han with
+    kana, Korean Han with Hangul -- are excluded upstream.
+    """
+    runs = suspicious_runs(text)
+    if not runs:
+        return
+    starts = _line_starts(text)
+    for run in runs:
+        line = bisect_right(starts, run.offset)
+        yield Finding(
+            codepoint=ord(run.text[0]),
+            category=Category.MIXED_SCRIPT,
+            severity=Severity.CONFUSABLE,
+            name=run.description,
+            offset=run.offset,
+            line=line,
+            column=run.offset - starts[line - 1] + 1,
+            context=render_context(text, run.offset, context_width),
+        )
+
+
 def inspect_text(
     text: str,
     source: str = "<text>",
@@ -117,8 +151,7 @@ def inspect_text(
     ``not_determinable`` section records that the statistical watermark layer
     was not evaluated, because it cannot be.
     """
-    return Report(
-        source=source,
-        kind="text",
-        findings=list(iter_findings(text, context_width)),
-    )
+    findings = list(iter_findings(text, context_width))
+    findings.extend(iter_mixed_script_findings(text, context_width))
+    findings.sort(key=lambda f: (f.offset, f.category.value))
+    return Report(source=source, kind="text", findings=findings)

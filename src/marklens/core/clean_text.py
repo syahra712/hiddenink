@@ -53,6 +53,7 @@ from .codepoints import (
     classify,
     is_load_bearing,
 )
+from .confusables import fold_confusables
 from .report import Report
 
 __all__ = ["Profile", "clean_text", "protected_regions"]
@@ -170,38 +171,63 @@ def _strip_invisible(text: str) -> tuple[str, int]:
     return "".join(kept), removed
 
 
-def _fold_segment(segment: str, table: dict[int, str]) -> tuple[str, int]:
-    """Apply a translation table, counting how many characters it touched."""
-    if not table or not segment:
-        return segment, 0
-    out = segment.translate(table)
-    if out == segment:
-        return segment, 0
-    # Only pay for the Python-level count when something actually changed.
-    return out, sum(1 for ch in segment if ord(ch) in table)
+def _fold_segment(
+    segment: str, table: dict[int, str], confusables: bool = False
+) -> tuple[str, int]:
+    """Apply a translation table, counting how many characters it touched.
+
+    ``confusables`` additionally folds impersonating characters to ASCII. It is
+    off for prose and off inside URLs: a Cyrillic letter in running text is
+    somebody's language, and rewriting a URL's characters changes where it
+    points.
+    """
+    changed = 0
+    if table and segment:
+        out = segment.translate(table)
+        if out != segment:
+            # Only pay for the Python-level count when something changed.
+            changed += sum(1 for ch in segment if ord(ch) in table)
+            segment = out
+    if confusables and not segment.isascii():
+        segment, folded = fold_confusables(segment)
+        changed += folded
+    return segment, changed
 
 
 def _fold(text: str, profile: Profile) -> tuple[str, int]:
     """Phase 2: fold visible-but-flagged characters, respecting regions."""
     default_table = _default_table(profile)
+    # A confusable in source or structured data is unambiguously a defect: an
+    # identifier that reads as `paypal` but is not. In prose it is reported and
+    # left alone, because the same character may simply be the language.
+    fold_lookalikes = profile in (Profile.CODE, Profile.DATA)
     spans = protected_regions(text)
     if not spans:
-        return _fold_segment(text, default_table)
+        return _fold_segment(text, default_table, fold_lookalikes)
 
     pieces: list[str] = []
     folded = 0
     position = 0
     for start, end, mode in spans:
         if start > position:
-            out, n = _fold_segment(text[position:start], default_table)
+            out, n = _fold_segment(
+                text[position:start], default_table, fold_lookalikes
+            )
             pieces.append(out)
             folded += n
-        out, n = _fold_segment(text[start:end], _MODE_TABLE[mode])
-        pieces.append(out)
-        folded += n
+        # SOURCE regions fold like code even under prose; LITERAL (URLs) never
+        # fold at all, because changing a URL's characters changes where it
+        # points -- and a homograph domain is precisely what you want to still
+        # be able to see in the report.
+        if mode is _Mode.LITERAL:
+            pieces.append(text[start:end])
+        else:
+            out, n = _fold_segment(text[start:end], _MODE_TABLE[mode], True)
+            pieces.append(out)
+            folded += n
         position = end
     if position < len(text):
-        out, n = _fold_segment(text[position:], default_table)
+        out, n = _fold_segment(text[position:], default_table, fold_lookalikes)
         pieces.append(out)
         folded += n
     return "".join(pieces), folded

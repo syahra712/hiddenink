@@ -190,6 +190,21 @@ CORPUS: tuple[Case, ...] = (
     _c("combining accents preserved", "é", "é",
        "U+0301 is a visible diacritic, not a hidden mark",
        "fidelity"),
+    _c("russian prose untouched", "привет мир", "привет мир",
+       "Cyrillic letters inside a Cyrillic word are the language, not an "
+       "impersonation; folding them to Latin corrupts the text",
+       "fidelity"),
+    _c("greek notation untouched", "ρ = m/V and ν = 3", "ρ = m/V and ν = 3",
+       "lowercase Greek is mathematical notation; folding rho to p would "
+       "corrupt any physics or statistics document",
+       "fidelity"),
+    _c("bilingual sentence untouched", "hello привет", "hello привет",
+       "two scripts in a sentence is ordinary bilingual text; only a single "
+       "word mixing scripts is suspicious",
+       "fidelity"),
+    _c("japanese untouched", "日本語のテキスト", "日本語のテキスト",
+       "Han with kana is how Japanese is written, not a script-mixing attack",
+       "fidelity"),
     # --- policy: defensible either way, reported but not scored ------------
     _p("nbsp in prose", f"10{NBSP}km", "10 km",
        "an invisible indentation hazard, but sometimes intentional typography",
@@ -214,6 +229,16 @@ CORPUS: tuple[Case, ...] = (
        '```\nn = "v"\n```',
        "as above",
        "typography"),
+    _p("homograph in prose", "visit pаypal.com", "visit pаypal.com",
+       "marklens reports this and leaves it alone in prose, because the "
+       "reader needs to see the impersonation; under the code profile it folds",
+       "confusables"),
+    _p("fullwidth text", "ｈｅｌｌｏ", "hello",
+       "a decorative encoding of ASCII, so recovering the ASCII loses nothing",
+       "confusables"),
+    _p("mathematical bold", "𝐡𝐞𝐥𝐥𝐨", "hello",
+       "as above",
+       "confusables"),
 )
 
 

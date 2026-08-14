@@ -25,7 +25,8 @@ from .core.report import Report
 _SEVERITY_ORDER = {
     Severity.TYPOGRAPHIC: 1,
     Severity.WHITESPACE: 2,
-    Severity.INVISIBLE: 3,
+    Severity.CONFUSABLE: 3,
+    Severity.INVISIBLE: 4,
 }
 
 #: Containers that are text underneath, so ``clean`` can rewrite them safely.
@@ -90,6 +91,7 @@ def _render(report: Report, style: _Style, show_findings: bool = True) -> str:
         for sev, colour in (
             (Severity.INVISIBLE, style.red),
             (Severity.WHITESPACE, style.yellow),
+            (Severity.CONFUSABLE, style.yellow),
             (Severity.TYPOGRAPHIC, style.cyan),
         ):
             n = by_sev.get(sev.value, 0)

@@ -24,6 +24,8 @@ from enum import Enum
 from functools import lru_cache
 from typing import NamedTuple
 
+from .confusables import nfkc_fold
+
 __all__ = [
     "Category",
     "Severity",
@@ -45,6 +47,9 @@ class Severity(str, Enum):
     WHITESPACE = "whitespace"
     #: A visible glyph. Removal changes what the reader sees.
     TYPOGRAPHIC = "typographic"
+    #: A visible glyph impersonating a different one. A security signal rather
+    #: than a style preference: the risk is that a reader cannot tell.
+    CONFUSABLE = "confusable"
 
 
 class Category(str, Enum):
@@ -65,6 +70,9 @@ class Category(str, Enum):
     SMART_QUOTE = "smart_quote"
     DASH = "dash"
     ELLIPSIS = "ellipsis"
+    COMPATIBILITY_VARIANT = "compatibility_variant"
+    CONFUSABLE = "confusable"
+    MIXED_SCRIPT = "mixed_script"
 
 
 _SEVERITY_OF: dict[Category, Severity] = {
@@ -83,6 +91,9 @@ _SEVERITY_OF: dict[Category, Severity] = {
     Category.SMART_QUOTE: Severity.TYPOGRAPHIC,
     Category.DASH: Severity.TYPOGRAPHIC,
     Category.ELLIPSIS: Severity.TYPOGRAPHIC,
+    Category.COMPATIBILITY_VARIANT: Severity.TYPOGRAPHIC,
+    Category.CONFUSABLE: Severity.CONFUSABLE,
+    Category.MIXED_SCRIPT: Severity.CONFUSABLE,
 }
 
 # --- explicit codepoint sets -------------------------------------------------
@@ -406,6 +417,10 @@ def _category_of(cp: int) -> Category | None:
         return Category.DASH
     if cp in ELLIPSIS:
         return Category.ELLIPSIS
+
+    if nfkc_fold(cp) is not None:
+        # A decorative encoding of ASCII: fullwidth, mathematical, circled.
+        return Category.COMPATIBILITY_VARIANT
 
     general = unicodedata.category(chr(cp))
     if general == "Cc" and cp not in _ALLOWED_CONTROLS:
