@@ -10,7 +10,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hiddenink"
-version = "0.1.1"
+version = "0.1.2"
 description = "Find the ink you can't see. Inspects and cleans invisible Unicode, homoglyphs, and container metadata — and says precisely what it did not do."
 readme = "README.md"
 requires-python = ">=3.10"

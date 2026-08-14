@@ -2,6 +2,24 @@
 
 Notable changes per release. Dates are ISO-8601.
 
+## [0.1.2] — 2026-08-14
+
+### Changed
+
+- README opens with a concrete before/after instead of context. The most
+  useful thing in the project -- that stripping invisible characters by
+  codepoint corrupts emoji, Urdu, and Russian, and that deciding per
+  occurrence does not -- was previously a hundred lines down, past the point
+  anyone reads.
+
+### Fixed
+
+- `tests/test_release.py` used `Path.read_text()` with no encoding, which
+  defaults to cp1252 on Windows and raised on the README's emoji and
+  Devanagari. Every Windows CI leg failed. Same defect that crashed the CLI,
+  reintroduced in the tests written to prevent released mistakes; now enforced
+  over the AST by `TestEncodingIsAlwaysExplicit`.
+
 ## [0.1.1] — 2026-08-14
 
 ### Fixed

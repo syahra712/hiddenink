@@ -12,6 +12,31 @@ Apache-2.0 · Python ≥3.10 · **zero dependencies** in the core · works offli
 
 ---
 
+## In ten seconds
+
+Every "AI watermark remover" strips invisible characters by codepoint. That is why they corrupt your text:
+
+```console
+$ echo "family 👨‍👩‍👧 · urdu ہے‌نا · russian привет мир" | other-cleaner
+family 👨👩👧 · urdu ہےنا · russian пpивeт миp
+#      ^^^^^^ emoji shattered   ^^^^^ spelling broken   ^^^^^ no longer Russian
+
+$ echo "family 👨‍👩‍👧 · urdu ہے‌نا · russian привет мир" | hiddenink clean
+family 👨‍👩‍👧 · urdu ہے‌نا · russian привет мир
+#      all intact — and the hidden marks are still gone
+```
+
+The zero-width joiner in `👨‍👩‍👧` is what makes it one glyph. In `ہے‌نا` it is spelling. Between two Latin letters it is a hidden mark. **Same codepoint, three verdicts** — so `hiddenink` decides per occurrence instead of per flag.
+
+Scored against a [conformance corpus](src/hiddenink/audit/corpus.py) you can run yourself:
+
+| tool | correctness | content corrupted |
+|---|---|---|
+| **hiddenink** | **40/40** | **0** |
+| the leading alternative | 35/40 | 3 |
+
+---
+
 ## The short version
 
 On 2026-08-11 Anthropic began marking Claude output for EU AI Act compliance. Within a day, a dozen "Claude watermark removers" appeared. Nearly all of them do the same two things: strip invisible Unicode, then ask another LLM to paraphrase your text.
